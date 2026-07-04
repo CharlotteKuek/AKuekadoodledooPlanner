@@ -692,6 +692,18 @@ function cloneWithIds(obj){
 }
 const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Future"];
 const KEY="pastel-planner-v1", SHKEY="planner-shared-projects";
+/* ---- storage shim: use Claude's window.storage if present, else the browser's localStorage
+   (this is what makes the app work on a real website like Vercel, where window.storage doesn't exist) ---- */
+const store=(function(){
+  if(typeof window!=="undefined"&&window.storage&&typeof window.storage.get==="function"){
+    return window.storage;
+  }
+  return {
+    async get(key){try{const v=localStorage.getItem(key);return v==null?null:{key,value:v}}catch(e){return null}},
+    async set(key,value){try{localStorage.setItem(key,value)}catch(e){}return{key,value}},
+    async delete(key){try{localStorage.removeItem(key)}catch(e){}return{key,deleted:true}},
+  };
+})();
 /* ================= Supabase cloud layer ================= */
 let supa=null;
 function initSupa(){
@@ -913,7 +925,7 @@ function pushHistory(){
   if(history.length&&history[history.length-1].snap===cur.snap)return;
   history.push(cur);histIdx=history.length-1;
   pruneHistory();
-  window.storage.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
+  store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
   updateUndoButtons();
 }
 function updateUndoButtons(){
@@ -927,14 +939,14 @@ function applyHistory(){
   restoring=true;
   S=JSON.parse(history[histIdx].snap);
   fixActive();applyTheme();renderAll();
-  window.storage.set(KEY,JSON.stringify(S)).catch(()=>{});
-  window.storage.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
+  store.set(KEY,JSON.stringify(S)).catch(()=>{});
+  store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
   if(S.share.on)publishShared().catch(()=>{});
   updateUndoButtons();markSaving("saved");
   setTimeout(()=>restoring=false,30);
 }
 async function loadHistory(){
-  try{const r=await window.storage.get(HKEY,false);if(r&&r.value){const o=JSON.parse(r.value);history=o.history||[];histIdx=o.histIdx==null?history.length-1:o.histIdx;pruneHistory()}}catch(e){}
+  try{const r=await store.get(HKEY,false);if(r&&r.value){const o=JSON.parse(r.value);history=o.history||[];histIdx=o.histIdx==null?history.length-1:o.histIdx;pruneHistory()}}catch(e){}
   if(!history.length){history=[snapNow()];histIdx=0}
   updateUndoButtons();
 }
@@ -951,7 +963,7 @@ function flushTypingHistory(){if(typingPending){typingPending=false;clearTimeout
 async function saveNow(){
   try{markSaving("saving");
     if(viewer){await pushSharedEdits();markSaving("saved");return}
-    await window.storage.set(KEY,JSON.stringify(S));
+    await store.set(KEY,JSON.stringify(S));
     /* mirror to the cloud so it syncs across devices and share links stay live */
     cloudSavePlanner().catch(()=>{});
     if(S.share.on)await publishShared();
@@ -971,16 +983,16 @@ function sharedPayload(){
   return out;
 }
 async function publishShared(){
-  await window.storage.set(SHKEY,JSON.stringify(sharedPayload()),true);
+  await store.set(SHKEY,JSON.stringify(sharedPayload()),true);
   await cloudPublishShare();
 }
-async function unpublishShared(){try{await window.storage.delete(SHKEY,true)}catch(e){}await cloudUnpublishShare();}
+async function unpublishShared(){try{await store.delete(SHKEY,true)}catch(e){}await cloudUnpublishShare();}
 /* viewer with edit rights writes changes back into the shared blob */
 let sharedRef=null;
 async function pushSharedEdits(){
   if(!sharedRef)return;
   sharedRef.updated=new Date().toLocaleString()+" (edited by collaborator)";
-  await window.storage.set(SHKEY,JSON.stringify(sharedRef),true);
+  await store.set(SHKEY,JSON.stringify(sharedRef),true);
 }
 async function load(){
   initSupa();
@@ -1001,7 +1013,7 @@ async function load(){
     return;
   }
   let raw=null;
-  try{const r=await window.storage.get(KEY);if(r&&r.value)raw=JSON.parse(r.value)}catch(e){}
+  try{const r=await store.get(KEY);if(r&&r.value)raw=JSON.parse(r.value)}catch(e){}
   /* if nothing local yet, try pulling this planner from the cloud (e.g. on a new device) */
   if(!raw&&supa){
     try{const cloud=await cloudLoadPlanner();if(cloud)raw=cloud}catch(e){}
@@ -1010,7 +1022,7 @@ async function load(){
   const wantsBoard=/[?&#]board\b/.test(location.href);
   if(wantsBoard&&!raw){
     let shared=null;
-    try{const r=await window.storage.get(SHKEY,true);if(r&&r.value)shared=JSON.parse(r.value)}catch(e){}
+    try{const r=await store.get(SHKEY,true);if(r&&r.value)shared=JSON.parse(r.value)}catch(e){}
     if(shared){renderViewer(shared);return}
   }
   if(raw){S=migrateAny(raw)}
