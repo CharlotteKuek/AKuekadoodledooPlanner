@@ -400,6 +400,11 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .menu button{display:flex;width:100%;text-align:left;padding:8px 11px;border-radius:8px;font-size:13.5px;font-weight:600}
 .menu button:hover{background:var(--line)}
 #viewerbar{background:var(--brown);color:#fff;font-size:13px;padding:9px 16px;text-align:center}
+#viewertabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 20px 0;max-width:1060px;margin:0 auto}
+.vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
+.vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
+.vtab.active{background:var(--brown);color:#fff}
+.vtab .ve{font-size:15px}
 #viewerbar button{color:#fff;text-decoration:underline;font-size:13px;margin-left:8px}
 .ro [contenteditable]{pointer-events:none}
 .credit{margin-top:64px;text-align:center;padding:34px 10px 6px;border-top:1px solid var(--line)}
@@ -974,8 +979,8 @@ function sharedPayload(){
   const out={appName:S.shareTitle,updated:new Date().toLocaleString(),mains:[]};
   S.mains.forEach(m=>{
     const picked=m.subs.filter(x=>S.share.subs[x.id]);
-    if(picked.length)out.mains.push({id:m.id,name:m.name,subs:picked.map(p=>({
-      id:p.id,name:p.name,mode:"view",
+    if(picked.length)out.mains.push({id:m.id,name:m.name,emoji:m.emoji,subs:picked.map(p=>({
+      id:p.id,name:p.name,mode:"view",emoji:p.emoji,banner:p.banner,special:p.special,
       project:p.project?{detailSections:p.project.detailSections}:null,
       sections:p.sections
     }))});
@@ -1324,28 +1329,57 @@ function restoreFocus(){
   if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
 }
 /* ================= viewer (live view-only share) ================= */
+let viewerActiveSub=null;
+function applyBannerTo(el,banner){
+  if(!banner){el.style.background=GRADS.g1;return}
+  if(banner.type==="gradient"){el.style.background=GRADS[banner.value]||GRADS.g1;el.style.backgroundSize="";el.style.backgroundPosition=""}
+  else{el.style.background=`url(${banner.value})`;el.style.backgroundSize=(banner.zoom||100)+"%";el.style.backgroundPosition=(banner.posX!=null?banner.posX:50)+"% "+(banner.posY!=null?banner.posY:50)+"%";el.style.backgroundRepeat="no-repeat"}
+}
 function renderViewer(sh){
   viewer=true;sharedRef=sh;viewerCanEdit=false;
   document.getElementById("topbar").style.display="none";
   const vb=document.getElementById("viewerbar");vb.style.display="block";
   vb.innerHTML=`<span style="font-weight:700">${escHtml(sh.appName||"Shared planner")}</span> — view only · updates live as changes are made`;
   document.getElementById("addsec").style.display="none";
-  document.getElementById("banner").style.display="none";
-  const title=document.getElementById("tabtitle");title.contentEditable="false";title.textContent=sh.appName||"Shared planner";
-  document.getElementById("tabsub").textContent="";
+  /* flatten all shared sub-tabs into one list (one tab each) */
+  const flat=[];
+  (sh.mains||[]).forEach(m=>(m.subs||[]).forEach(sub=>flat.push({main:m,sub})));
+  if(!flat.length){
+    document.getElementById("banner").style.display="none";
+    document.getElementById("sections").innerHTML='<p style="color:var(--ink-soft)">Nothing shared here yet.</p>';
+    return;
+  }
+  /* keep the selected tab if it still exists, else default to first */
+  if(!viewerActiveSub||!flat.some(f=>f.sub.id===viewerActiveSub))viewerActiveSub=flat[0].sub.id;
+  const cur=flat.find(f=>f.sub.id===viewerActiveSub)||flat[0];
+
+  /* ---- tab row (one per shared project) ---- */
+  const page=document.getElementById("page");
+  let bar=document.getElementById("viewertabs");
+  if(!bar){bar=document.createElement("div");bar.id="viewertabs";page.insertBefore(bar,page.firstChild)}
+  bar.innerHTML="";
+  flat.forEach(f=>{
+    const t=document.createElement("button");
+    t.className="vtab"+(f.sub.id===viewerActiveSub?" active":"");
+    t.innerHTML=(f.sub.emoji?`<span class="ve">${f.sub.emoji}</span>`:"")+`<span>${escHtml(f.sub.name)}</span>`;
+    t.onclick=()=>{viewerActiveSub=f.sub.id;renderViewer(sh)};
+    bar.appendChild(t);
+  });
+
+  /* ---- banner ---- */
+  const banner=document.getElementById("banner");
+  if(cur.sub.banner){banner.style.display="";applyBannerTo(banner,cur.sub.banner)}
+  else banner.style.display="none";
+
+  /* ---- title + sections for the selected tab ---- */
+  const title=document.getElementById("tabtitle");title.contentEditable="false";title.textContent=cur.sub.name;
+  document.getElementById("tabsub").textContent=cur.main.name;
   const root=document.getElementById("sections");root.innerHTML="";
   byId={};
-  (sh.mains||[]).forEach(m=>{
-    (m.subs||[]).forEach(sub=>{
-      const wrap=document.createElement("div");wrap.style.marginBottom="30px";
-      wrap.innerHTML=`<div style="font-size:22px;font-weight:700;margin:6px 0 12px">${escHtml(m.name)} / ${escHtml(sub.name)}</div>`;
-      const holder=document.createElement("div");holder.classList.add("ro");
-      if(sub.project){(sub.project.detailSections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))})}
-      (sub.sections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))});
-      wrap.appendChild(holder);root.appendChild(wrap);
-    });
-  });
-  if(!(sh.mains||[]).length)root.innerHTML='<p style="color:var(--ink-soft)">Nothing shared here yet.</p>';
+  const holder=document.createElement("div");holder.classList.add("ro");
+  if(cur.sub.project){(cur.sub.project.detailSections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))})}
+  (cur.sub.sections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))});
+  root.appendChild(holder);
   applyTheme();
 }
 
