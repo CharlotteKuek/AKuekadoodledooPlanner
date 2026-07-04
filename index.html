@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>My Planner</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyNCIgZmlsbD0iI2Y0YTliOCIvPgo8cmVjdCB4PSIyMiIgeT0iMjAiIHdpZHRoPSI1NiIgaGVpZ2h0PSI2MiIgcng9IjkiIGZpbGw9IiNmZmZkZjkiLz4KPGNpcmNsZSBjeD0iMzQiIGN5PSIzNyIgcj0iNCIgZmlsbD0iIzhmY2U5YiIvPgo8cmVjdCB4PSI0MyIgeT0iMzQiIHdpZHRoPSIyNiIgaGVpZ2h0PSI2IiByeD0iMyIgZmlsbD0iI2U3ZDRjNCIvPgo8Y2lyY2xlIGN4PSIzNCIgY3k9IjUxIiByPSI0IiBmaWxsPSIjZjBiMzZhIi8+CjxyZWN0IHg9IjQzIiB5PSI0OCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjYiIHJ4PSIzIiBmaWxsPSIjZTdkNGM0Ii8+CjxjaXJjbGUgY3g9IjM0IiBjeT0iNjUiIHI9IjQiIGZpbGw9IiNhOWM0ZjQiLz4KPHJlY3QgeD0iNDMiIHk9IjYyIiB3aWR0aD0iMjAiIGhlaWdodD0iNiIgcng9IjMiIGZpbGw9IiNlN2Q0YzQiLz4KPC9zdmc+">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyNCIgZmlsbD0iI2Y0YTliOCIvPgo8cmVjdCB4PSIyMiIgeT0iMjAiIHdpZHRoPSI1NiIgaGVpZ2h0PSI2MiIgcng9IjkiIGZpbGw9IiNmZmZkZjkiLz4KPGNpcmNsZSBjeD0iMzQiIGN5PSIzNyIgcj0iNCIgZmlsbD0iIzhmY2U5YiIvPgo8cmVjdCB4PSI0MyIgeT0iMzQiIHdpZHRoPSIyNiIgaGVpZ2h0PSI2IiByeD0iMyIgZmlsbD0iI2U3ZDRjNCIvPgo8Y2lyY2xlIGN4PSIzNCIgY3k9IjUxIiByPSI0IiBmaWxsPSIjZjBiMzZhIi8+CjxyZWN0IHg9IjQzIiB5PSI0OCIgd2lkdGg9IjI2IiBoZWlnaHQ9IjYiIHJ4PSIzIiBmaWxsPSIjZTdkNGM0Ii8+CjxjaXJjbGUgY3g9IjM0IiBjeT0iNjUiIHI9IjQiIGZpbGw9IiNhOWM0ZjQiLz4KPHJlY3QgeD0iNDMiIHk9IjYyIiB3aWR0aD0iMjAiIGhlaWdodD0iNiIgcng9IjMiIGZpbGw9IiNlN2Q0YzQiLz4KPC9zdmc+">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="My Planner">
+<meta name="theme-color" content="#f4a9b8">
 <!-- Supabase cloud sync + live share links -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -400,6 +406,17 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .menu button{display:flex;width:100%;text-align:left;padding:8px 11px;border-radius:8px;font-size:13.5px;font-weight:600}
 .menu button:hover{background:var(--line)}
 #viewerbar{background:var(--brown);color:#fff;font-size:13px;padding:9px 16px;text-align:center}
+#codegate{display:flex;align-items:center;justify-content:center;min-height:80vh;padding:20px}
+.cg-card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);padding:32px 28px;max-width:400px;width:100%;text-align:center}
+.cg-logo img{width:54px;height:54px;object-fit:contain;margin-bottom:8px}
+.cg-card h2{font-size:22px;margin:4px 0 8px}
+.cg-card p{color:var(--ink-soft);font-size:14px;line-height:1.5;margin:0 0 16px}
+.cg-card input{width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:11px;font-size:15px;font-family:inherit;text-align:center;margin-bottom:12px;background:var(--field);color:var(--ink)}
+.cg-card input:focus{outline:none;border-color:var(--accent)}
+.cg-primary{width:100%;padding:12px;border-radius:12px;background:var(--accent);color:#fff;font-weight:800;font-size:15px;cursor:pointer;border:none}
+.cg-or{color:var(--ink-soft);font-size:12px;margin:14px 0;position:relative}
+.cg-ghost{width:100%;padding:11px;border-radius:12px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:none}
+.cg-note{margin-top:14px !important;font-size:13px}
 #viewertabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 20px 0;max-width:1060px;margin:0 auto}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
@@ -721,13 +738,36 @@ function initSupa(){
 }
 /* a stable, unguessable id for THIS person's planner, kept in the browser */
 const PLANNER_ID_KEY="planner-cloud-id";
+const PLANNER_CODE_KEY="planner-code";
 let _plannerId=null;
+/* your planner is identified by a CODE. The same code on any device = the same planner.
+   The cloud id is derived from the code so we never store the raw code in the shared area. */
+function codeToId(code){return "pl_"+code.trim().toLowerCase().replace(/[^a-z0-9]/g,"")}
+function myPlannerCode(){
+  let c=null;try{c=localStorage.getItem(PLANNER_CODE_KEY)}catch(e){}
+  return c;
+}
+function setPlannerCode(code){
+  try{localStorage.setItem(PLANNER_CODE_KEY,code)}catch(e){}
+  _plannerId=codeToId(code);
+  try{localStorage.setItem(PLANNER_ID_KEY,_plannerId)}catch(e){}
+}
 function myPlannerId(){
   if(_plannerId)return _plannerId;
-  let id=null;
-  try{id=localStorage.getItem(PLANNER_ID_KEY)}catch(e){}
+  /* prefer a code if one is set */
+  const c=myPlannerCode();
+  if(c){_plannerId=codeToId(c);return _plannerId}
+  /* otherwise fall back to any previously stored raw id */
+  let id=null;try{id=localStorage.getItem(PLANNER_ID_KEY)}catch(e){}
   if(!id){id="pl_"+uid()+uid()+uid();try{localStorage.setItem(PLANNER_ID_KEY,id)}catch(e){}}
   _plannerId=id;return id;
+}
+/* generate a friendly random code like "sunny-otter-4821" */
+function makeFriendlyCode(){
+  const a=["sunny","cozy","bright","lucky","happy","gentle","clever","swift","calm","merry","brave","kind"];
+  const b=["otter","panda","koala","fox","robin","lark","maple","willow","pebble","cloud","meadow","comet"];
+  const pick=x=>x[Math.floor(Math.random()*x.length)];
+  return pick(a)+"-"+pick(b)+"-"+Math.floor(1000+Math.random()*9000);
 }
 /* the id used for the PUBLIC view-only share (separate row so it only holds shared tabs) */
 function myShareId(){return "share_"+myPlannerId().slice(3)}
@@ -1021,7 +1061,16 @@ async function load(){
   }
   let raw=null;
   try{const r=await store.get(KEY);if(r&&r.value)raw=JSON.parse(r.value)}catch(e){}
-  /* if nothing local yet, try pulling this planner from the cloud (e.g. on a new device) */
+  const hasCode=!!myPlannerCode();
+  /* Fresh device with no code and no local data → ask whether to link an existing planner or start new */
+  if(!raw&&!hasCode&&supa){
+    /* peek: is there anything in the cloud under the fallback id? if so, load it silently */
+    let cloudGuess=null;
+    try{cloudGuess=await cloudLoadPlanner()}catch(e){}
+    if(cloudGuess){raw=cloudGuess}
+    else{showCodeGate();return}
+  }
+  /* if we have a code but no local copy, pull this planner from the cloud */
   if(!raw&&supa){
     try{const cloud=await cloudLoadPlanner();if(cloud)raw=cloud}catch(e){}
   }
@@ -1038,6 +1087,55 @@ async function load(){
   fixActive();applyTheme();renderAll();markSaving("saved");
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
   await loadHistory();
+}
+/* first-time-on-this-device screen: link an existing planner by code, or start a new one */
+function showCodeGate(){
+  document.getElementById("topbar").style.display="none";
+  document.getElementById("banner").style.display="none";
+  const root=document.getElementById("page");
+  const g=document.createElement("div");g.id="codegate";
+  g.innerHTML=`
+    <div class="cg-card">
+      <div class="cg-logo"><img src="${window.LOGO_B64}" alt="logo"></div>
+      <h2>Welcome to your planner</h2>
+      <p>If you already have a planner, enter your <b>planner code</b> to load it here and keep this device in sync.</p>
+      <input id="cg-code" placeholder="e.g. sunny-otter-4821" autocomplete="off">
+      <button class="cg-primary" id="cg-load">Load my planner</button>
+      <div class="cg-or">or</div>
+      <button class="cg-ghost" id="cg-new">Start a brand-new planner</button>
+      <p class="cg-note" id="cg-msg"></p>
+    </div>`;
+  root.innerHTML="";root.appendChild(g);
+  applyTheme();
+  const msg=g.querySelector("#cg-msg");
+  g.querySelector("#cg-load").onclick=async()=>{
+    const code=g.querySelector("#cg-code").value.trim();
+    if(!code){msg.textContent="Type your code first.";return}
+    msg.textContent="Loading…";
+    setPlannerCode(code);
+    let cloud=null;
+    try{cloud=await cloudLoadPlanner()}catch(e){}
+    if(cloud){
+      try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}
+      finishLoadFrom(cloud);
+    }else{msg.innerHTML="No planner found with that code. Double-check it, or start a new one.";}
+  };
+  g.querySelector("#cg-new").onclick=async()=>{
+    const code=makeFriendlyCode();
+    setPlannerCode(code);
+    /* seed a fresh planner into the cloud so the reload finds it */
+    S=defaultState();
+    try{await cloudSavePlanner()}catch(e){}
+    try{await store.set(KEY,JSON.stringify(S))}catch(e){}
+    finishLoadFrom(null,code);
+  };
+}
+function finishLoadFrom(raw,newCode){
+  if(newCode){
+    alert("Your planner code is:\n\n"+newCode+"\n\nWrite it down! Type it on your phone (or any device) to see this same planner there. You can always find it later in Settings.");
+  }
+  /* reload so every button/toolbar handler binds cleanly to a fresh page */
+  location.reload();
 }
 function fixActive(){
   if(!S.mains.length)S.mains.push({id:uid(),name:"My Planner",subs:[newBlankSub()]});
@@ -2144,10 +2242,17 @@ function openSettings(){
     <h3>Export this tab</h3>
     <button class="bigbtn" id="pdfbtn" style="background:var(--brown)">${icon("doc",15)} Export current tab to PDF</button>
     <p class="note-small">Opens your browser's print dialog for the tab you're viewing — choose "Save as PDF" as the destination.</p>
+    <h3>Sync across your devices</h3>
+    <p class="note-small">Your <b>planner code</b> links this planner across your own devices. Type it on your phone (or any device) to see and edit this same planner there — changes sync automatically. Keep it private: anyone with the code can open your full planner.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="plannercode" readonly value="" style="flex:1;min-width:160px;font-weight:700;font-size:14px" placeholder="(no code yet)">
+      <button class="bigbtn" id="copycode" style="margin:0">${icon("copy",14)} Copy</button>
+    </div>
+    <button class="ghostbtn" id="setcodebtn" style="margin-top:8px">Set my own code instead</button>
     <h3>Back up your data</h3>
     <button class="bigbtn" id="exportbtn">${icon("down",15)} Download backup (.json)</button>
     <label class="ghostbtn" style="cursor:pointer">${icon("up",15)} Restore from backup<input type="file" id="importfile" accept=".json,application/json" hidden></label>
-    <p class="note-small">Backups contain every tab, list, image and setting. Your planner also auto-saves to your Claude account, so opening this same artifact on your phone (logged into the same account) shows the same data.</p>
+    <p class="note-small">Backups contain every tab, list, image and setting.</p>
     <div class="credit">
       <img class="kd-logo" src="${S.settings.theme==="dark"?window.LOGO_WHITE_B64:window.LOGO_B64}" alt="kuekadoodledoo logo">
       <p>This webapp was made by the amazing Charlotte Kuek! If you have issues or ideas to make it better, feel free to text me @charlottekuek on tele, ig, linkedin, or just deal with it I guess... HAHAHA ENJOYY!</p>
@@ -2208,6 +2313,25 @@ function openSettings(){
   m.querySelector("#sharesw").onclick=async ev=>{S.share.on=!S.share.on;ev.target.classList.toggle("on",S.share.on);if(S.share.on){await publishShared()}else{await unpublishShared()}refreshLink();saveSoon()};
   m.querySelector("#sharetitle").addEventListener("input",e=>{S.shareTitle=e.target.value;saveSoon()});
   m.querySelector("#pdfbtn").onclick=()=>{closeModal();setTimeout(()=>window.print(),120)};
+  /* planner code (cross-device sync) */
+  (function(){
+    const ci=m.querySelector("#plannercode");if(!ci)return;
+    let code=myPlannerCode();
+    if(!code){
+      /* existing planner without a code yet: assign one now so it can sync */
+      code=makeFriendlyCode();setPlannerCode(code);
+      /* re-save under the code-derived id so the cloud has it */
+      cloudSavePlanner().catch(()=>{});
+    }
+    ci.value=code;
+    m.querySelector("#copycode").onclick=()=>{
+      ci.select();navigator.clipboard?.writeText(ci.value).then(()=>{const b=m.querySelector("#copycode");const o=b.innerHTML;b.innerHTML="Copied!";setTimeout(()=>b.innerHTML=o,1400)}).catch(()=>{try{document.execCommand("copy")}catch(e){}});
+    };
+    m.querySelector("#setcodebtn").onclick=()=>{
+      const nc=prompt("Choose your own planner code (letters/numbers/dashes). Use something memorable but private:",ci.value);
+      if(nc&&nc.trim()){setPlannerCode(nc.trim());cloudSavePlanner().catch(()=>{});ci.value=myPlannerCode();alert("Code updated to:\n\n"+myPlannerCode()+"\n\nType this on your other devices to sync.");}
+    };
+  })();
   m.querySelector("#exportbtn").onclick=()=>{const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="planner-backup-"+new Date().toISOString().slice(0,10)+".json";a.click()};
   m.querySelector("#importfile").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
     rd.onload=()=>{try{let d=JSON.parse(rd.result);if(!d.mains&&!d.tabs)throw 0;d=migrateAny(d);S=d;fixActive();applyTheme();renderAll();saveNow();closeModal()}catch(_){alert("That file doesn't look like a planner backup.")}};rd.readAsText(f)});
@@ -3006,6 +3130,7 @@ function applySlash(k,ctx){
   }
 }
 
+const ORIGINAL_PAGE_HTML=document.getElementById("page").innerHTML;
 load();
 </script>
 </body>
