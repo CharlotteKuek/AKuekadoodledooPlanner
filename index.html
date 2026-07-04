@@ -150,7 +150,7 @@ body.subdragging .subtab{cursor:grabbing}
 #banner:hover .banner-btn,#banner .banner-btn:focus{opacity:1}
 #titlerow{display:flex;align-items:center;gap:10px;margin:18px 4px 4px}
 #tabtitle{font-size:34px;font-weight:700;letter-spacing:-.01em}
-#titlerow .projinfo{color:var(--ink-soft);padding:6px;border-radius:9px;border:1px solid var(--line)}
+#titlerow .projinfo,#titlerow .v-projinfo{color:var(--ink-soft);padding:6px;border-radius:9px;border:1px solid var(--line)}
 #titlerow .projinfo:hover{color:var(--ink);border-color:var(--accent)}
 #tabsub{color:var(--ink-soft);font-size:13.5px;margin:0 4px 22px}
 
@@ -781,9 +781,10 @@ function dateForDay(weekOffset,dayIdx){/* dayIdx 0..6 = Mon..Sun; 7=Future has n
 }
 /* which week-offset a grid is: count grids before it in the same list */
 function gridWeekOffset(gridId){
-  let off=0;
-  for(const m of S.mains)for(const sub of m.subs){
-    let n=0;for(const sec of sub.sections){if(sec.type==="grid"){if(sec.id===gridId)return n;n++}}
+  const source=(viewer&&sharedRef)?sharedRef:S;
+  if(!source||!source.mains)return 0;
+  for(const m of source.mains)for(const sub of (m.subs||[])){
+    let n=0;for(const sec of (sub.sections||[])){if(sec.type==="grid"){if(sec.id===gridId)return n;n++}}
   }
   return 0;
 }
@@ -966,14 +967,14 @@ function saveTyping(){if(viewer&&!viewerCanEdit)return;markSaving("editing");cle
   if(!restoring&&!viewer){typingPending=true;clearTimeout(histTimer);histTimer=setTimeout(()=>{typingPending=false;pushHistory()},600)}}
 function flushTypingHistory(){if(typingPending){typingPending=false;clearTimeout(histTimer);pushHistory()}}
 async function saveNow(){
-  try{markSaving("saving");
-    if(viewer){await pushSharedEdits();markSaving("saved");return}
-    await store.set(KEY,JSON.stringify(S));
-    /* mirror to the cloud so it syncs across devices and share links stay live */
-    cloudSavePlanner().catch(()=>{});
-    if(S.share.on)await publishShared();
-    markSaving("saved");
-  }catch(e){markSaving("not saved");}
+  if(viewer){try{await pushSharedEdits()}catch(e){}markSaving("saved");return}
+  markSaving("saving");
+  /* local save */
+  try{await store.set(KEY,JSON.stringify(S))}catch(e){}
+  /* cloud saves run independently — a failure in one must not block the others */
+  cloudSavePlanner().catch(()=>{});
+  if(S.share.on){publishShared().catch(()=>{});}
+  markSaving("saved");
 }
 function sharedPayload(){
   const out={appName:S.shareTitle,updated:new Date().toLocaleString(),mains:[]};
@@ -988,8 +989,9 @@ function sharedPayload(){
   return out;
 }
 async function publishShared(){
-  await store.set(SHKEY,JSON.stringify(sharedPayload()),true);
-  await cloudPublishShare();
+  /* cloud publish is the important one — do it first and independently */
+  try{await cloudPublishShare()}catch(e){}
+  try{await store.set(SHKEY,JSON.stringify(sharedPayload()),true)}catch(e){}
 }
 async function unpublishShared(){try{await store.delete(SHKEY,true)}catch(e){}await cloudUnpublishShare();}
 /* viewer with edit rights writes changes back into the shared blob */
@@ -1330,6 +1332,7 @@ function restoreFocus(){
 }
 /* ================= viewer (live view-only share) ================= */
 let viewerActiveSub=null;
+let viewerShowDetail=false;
 function applyBannerTo(el,banner){
   if(!banner){el.style.background=GRADS.g1;return}
   if(banner.type==="gradient"){el.style.background=GRADS[banner.value]||GRADS.g1;el.style.backgroundSize="";el.style.backgroundPosition=""}
@@ -1362,7 +1365,7 @@ function renderViewer(sh){
     const t=document.createElement("button");
     t.className="vtab"+(f.sub.id===viewerActiveSub?" active":"");
     t.innerHTML=(f.sub.emoji?`<span class="ve">${f.sub.emoji}</span>`:"")+`<span>${escHtml(f.sub.name)}</span>`;
-    t.onclick=()=>{viewerActiveSub=f.sub.id;renderViewer(sh)};
+    t.onclick=()=>{viewerActiveSub=f.sub.id;viewerShowDetail=false;renderViewer(sh)};
     bar.appendChild(t);
   });
 
@@ -1374,11 +1377,31 @@ function renderViewer(sh){
   /* ---- title + sections for the selected tab ---- */
   const title=document.getElementById("tabtitle");title.contentEditable="false";title.textContent=cur.sub.name;
   document.getElementById("tabsub").textContent=cur.main.name;
+  /* if this is a project, add an "i" button next to the title that reveals the detail sections */
+  const titlerow=document.getElementById("titlerow");
+  titlerow.querySelectorAll(".projinfo,.v-projinfo").forEach(x=>x.remove());
+  const hasDetail=cur.sub.project&&(cur.sub.project.detailSections||[]).length;
+  if(hasDetail){
+    const ib=document.createElement("button");ib.className="v-projinfo";ib.title="project details";ib.innerHTML=icon("info",18);
+    ib.onclick=()=>{viewerShowDetail=!viewerShowDetail;renderViewer(sh)};
+    titlerow.appendChild(ib);
+  }
   const root=document.getElementById("sections");root.innerHTML="";
   byId={};
   const holder=document.createElement("div");holder.classList.add("ro");
-  if(cur.sub.project){(cur.sub.project.detailSections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))})}
-  (cur.sub.sections||[]).forEach(sec=>{byId[sec.id]=sec;holder.appendChild(renderSection(sec))});
+  const safeRender=sec=>{
+    byId[sec.id]=sec;
+    try{holder.appendChild(renderSection(sec))}
+    catch(e){const d=document.createElement("div");d.style.cssText="padding:10px;color:var(--ink-soft);font-size:13px";d.textContent="("+(sec.title||sec.type||"section")+" couldn't display)";holder.appendChild(d)}
+  };
+  if(viewerShowDetail&&hasDetail){
+    const back=document.createElement("button");back.className="backbtn";back.innerHTML=icon("back",14)+" back to "+escHtml(cur.sub.name);
+    back.onclick=()=>{viewerShowDetail=false;renderViewer(sh)};
+    holder.appendChild(back);
+    (cur.sub.project.detailSections||[]).forEach(safeRender);
+  }else{
+    (cur.sub.sections||[]).forEach(safeRender);
+  }
   root.appendChild(holder);
   applyTheme();
 }
