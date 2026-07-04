@@ -1099,36 +1099,53 @@ function showCodeGate(){
       <div class="cg-logo"><img src="${window.LOGO_B64}" alt="logo"></div>
       <h2>Welcome to your planner</h2>
       <p>If you already have a planner, enter your <b>planner code</b> to load it here and keep this device in sync.</p>
-      <input id="cg-code" placeholder="e.g. sunny-otter-4821" autocomplete="off">
-      <button class="cg-primary" id="cg-load">Load my planner</button>
+      <input id="cg-code" placeholder="e.g. sunny-otter-4821" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text">
+      <button class="cg-primary" id="cg-load" type="button">Load my planner</button>
       <div class="cg-or">or</div>
-      <button class="cg-ghost" id="cg-new">Start a brand-new planner</button>
+      <button class="cg-ghost" id="cg-new" type="button">Start a brand-new planner</button>
       <p class="cg-note" id="cg-msg"></p>
     </div>`;
   root.innerHTML="";root.appendChild(g);
   applyTheme();
   const msg=g.querySelector("#cg-msg");
-  g.querySelector("#cg-load").onclick=async()=>{
+  const loadBtn=g.querySelector("#cg-load");
+  const newBtn=g.querySelector("#cg-new");
+  let busy=false;
+  const doLoad=async(ev)=>{
+    if(ev){ev.preventDefault();ev.stopPropagation();}
+    if(busy)return;
     const code=g.querySelector("#cg-code").value.trim();
     if(!code){msg.textContent="Type your code first.";return}
-    msg.textContent="Loading…";
+    busy=true;loadBtn.textContent="Loading…";msg.textContent="";
     setPlannerCode(code);
     let cloud=null;
     try{cloud=await cloudLoadPlanner()}catch(e){}
     if(cloud){
       try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}
       finishLoadFrom(cloud);
-    }else{msg.innerHTML="No planner found with that code. Double-check it, or start a new one.";}
+    }else{
+      busy=false;loadBtn.textContent="Load my planner";
+      msg.innerHTML="No planner found with that code. Double-check it, or start a new one.";
+    }
   };
-  g.querySelector("#cg-new").onclick=async()=>{
+  const doNew=async(ev)=>{
+    if(ev){ev.preventDefault();ev.stopPropagation();}
+    if(busy)return;
+    busy=true;newBtn.textContent="Setting up…";
     const code=makeFriendlyCode();
     setPlannerCode(code);
-    /* seed a fresh planner into the cloud so the reload finds it */
     S=defaultState();
     try{await cloudSavePlanner()}catch(e){}
     try{await store.set(KEY,JSON.stringify(S))}catch(e){}
     finishLoadFrom(null,code);
   };
+  /* bind for both mouse and touch so it works on iPhone Safari */
+  loadBtn.addEventListener("click",doLoad);
+  loadBtn.addEventListener("touchend",doLoad);
+  newBtn.addEventListener("click",doNew);
+  newBtn.addEventListener("touchend",doNew);
+  /* pressing Enter in the code box also loads */
+  g.querySelector("#cg-code").addEventListener("keydown",e=>{if(e.key==="Enter")doLoad(e)});
 }
 function finishLoadFrom(raw,newCode){
   if(newCode){
