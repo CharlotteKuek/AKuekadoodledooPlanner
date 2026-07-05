@@ -1109,9 +1109,9 @@ function showCodeGate(){
       <input id="cg-user" placeholder="username" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
       <input id="cg-pass" type="password" placeholder="password" autocomplete="off">
       <input id="cg-pass2" type="password" placeholder="confirm password" autocomplete="off" style="display:none">
-      <button class="cg-primary" id="cg-go" type="button" onclick="window.gateGo()">Log in</button>
+      <button class="cg-primary" id="cg-go" type="button">Log in</button>
       <div class="cg-or">or</div>
-      <button class="cg-ghost" id="cg-switch" type="button" onclick="window.gateSwitch()">Create a new account</button>
+      <button class="cg-ghost" id="cg-switch" type="button">Create a new account</button>
       <p class="cg-note" id="cg-msg"></p>
     </div>`;
   document.body.appendChild(g);
@@ -1163,7 +1163,15 @@ function showCodeGate(){
   };
   window.gateGo=doGo;
   window.gateSwitch=()=>setMode(mode==="login"?"signup":"login");
-  goBtn.addEventListener("click",doGo);
+  const switchBtn=g.querySelector("#cg-switch");
+  /* bind multiple event types for reliability, but dedupe so a single tap fires once */
+  let lastFire=0;
+  const once=(fn)=>(e)=>{e.preventDefault();const now=Date.now();if(now-lastFire<400)return;lastFire=now;fn(e);};
+  const goOnce=once(doGo), switchOnce=once(()=>window.gateSwitch());
+  ["pointerup","click"].forEach(evt=>{
+    goBtn.addEventListener(evt,goOnce,{passive:false});
+    switchBtn.addEventListener(evt,switchOnce,{passive:false});
+  });
   g.querySelector("#cg-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
   g.querySelector("#cg-pass2").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
 }
