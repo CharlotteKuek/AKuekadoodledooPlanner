@@ -66,7 +66,8 @@ a{color:#5b8dd6;text-decoration:underline;text-underline-offset:2px;word-break:b
 img{max-width:100%}
 
 /* ---------- top chrome: clearer tabs ---------- */
-#topbar{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 88%,white);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+#topbar{position:relative;z-index:40;background:color-mix(in srgb,var(--bg) 88%,white);border-bottom:1px solid var(--line)}
+#toolbar{position:sticky;top:0;z-index:44;background:color-mix(in srgb,var(--bg) 92%,white);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .bar-row{display:flex;align-items:center;gap:8px;padding:9px 14px 0;max-width:1060px;margin:0 auto;flex-wrap:wrap}
 #mains{display:flex;align-items:center;gap:5px;flex:1;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 #mains::-webkit-scrollbar{display:none}
@@ -471,17 +472,12 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
   /* section headers on one line: smaller, tighter */
   .sec-title{font-size:16px!important}
   .sec-title::after{width:34px;height:3px}
-  /* keep the formatting toolbar ALWAYS visible at the top while typing */
-  #topbar{position:static}
-  #subtray{position:static}
-  #toolbar{position:fixed;top:0;left:0;right:0;z-index:60;background:color-mix(in srgb,var(--bg) 96%,white);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:6px 10px;gap:1px;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+  /* toolbar sticks to the top after you scroll past the tabs (Google-Docs style) */
+  #toolbar{padding:6px 10px;gap:1px;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,.05)}
   #toolbar::-webkit-scrollbar{display:none}
   #toolbar>button{padding:5px 6px;font-size:12.5px;flex-shrink:0}
   #toolbar .sep{margin:0 3px}
   #fssize{min-width:20px;font-size:11px}
-  /* push content down so it isn't hidden under the fixed toolbar */
-  #page{padding-top:46px}
-  #banner{margin-top:0}
   /* table toolbar: compact bar pinned to the bottom so it doesn't cover the table */
   #tablebar{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:100%;max-width:100%;max-height:132px;border-radius:14px 14px 0 0;padding:7px 9px;gap:5px}
   #tablebar button{font-size:11px;padding:5px 7px}
@@ -507,7 +503,8 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
     </div>
   </div>
   <div id="subtray"><div id="subrow"></div></div>
-  <div id="toolbar">
+</div>
+<div id="toolbar">
     <button data-cmd="bold"><b>B</b></button>
     <button data-cmd="italic"><i>I</i></button>
     <button data-cmd="underline"><u>U</u></button>
@@ -520,7 +517,6 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
     <button id="linkbtn"></button>
     <button id="tablebtn" title="insert table">▦ table</button>
     <button data-cmd="removeFormat" title="clear formatting: makes selected text plain again (removes bold, colour, links, etc.)">clear format</button>
-  </div>
 </div>
 <div id="page">
   <div id="banner"><button class="banner-btn">change banner</button></div>
@@ -1089,7 +1085,7 @@ async function load(){
     }else{
       document.getElementById("viewerbar").style.display="block";
       document.getElementById("viewerbar").textContent="This shared planner couldn't be found — the link may be wrong or it was unshared.";
-      document.getElementById("topbar").style.display="none";
+      document.getElementById("topbar").style.display="none";var _tb=document.getElementById("toolbar");if(_tb)_tb.style.display="none";
     }
     return;
   }
@@ -1116,7 +1112,7 @@ async function load(){
 }
 /* first-time-on-this-device screen: log in to an existing account, or create a new one */
 function showCodeGate(){
-  document.getElementById("topbar").style.display="none";
+  document.getElementById("topbar").style.display="none";var _tb=document.getElementById("toolbar");if(_tb)_tb.style.display="none";
   document.getElementById("banner").style.display="none";
   const g=document.createElement("div");g.id="codegate";
   g.innerHTML=`
@@ -1513,7 +1509,7 @@ function showCreditEgg(){
 }
 function renderViewer(sh){
   viewer=true;sharedRef=sh;viewerCanEdit=false;
-  document.getElementById("topbar").style.display="none";
+  document.getElementById("topbar").style.display="none";var _tb=document.getElementById("toolbar");if(_tb)_tb.style.display="none";
   const vb=document.getElementById("viewerbar");vb.style.display="block";
   vb.innerHTML=`<span style="font-weight:700">${escHtml(sh.appName||"Shared planner")}</span> — view only · updates live as changes are made`;
   document.getElementById("addsec").style.display="none";
@@ -2782,7 +2778,7 @@ document.addEventListener("pointerdown",e=>{
       if(selCols.includes(ci))cols=selCols;
     }
     const starts={};cols.forEach(c=>{const cell=tbl.rows[0].cells[c];starts[c]=cell?cell.getBoundingClientRect().width:80});
-    rzInfo={type:"col",tbl,cols,starts,startX:e.clientX};
+    rzInfo={type:"col",tbl,cols,starts,startX:e.clientX,base:ci};
     h.setPointerCapture(e.pointerId);
   }else if(h.classList&&h.classList.contains("rz-row")){
     e.preventDefault();e.stopPropagation();
@@ -2794,7 +2790,7 @@ document.addEventListener("pointerdown",e=>{
       if(selRows.includes(tr))rows=selRows;
     }
     const starts=new Map();rows.forEach(r=>starts.set(r,r.getBoundingClientRect().height));
-    rzInfo={type:"row",tbl,rows,starts,startY:e.clientY};
+    rzInfo={type:"row",tbl,rows,starts,startY:e.clientY,base:tr};
     h.setPointerCapture(e.pointerId);
   }
 },true);
@@ -2802,14 +2798,16 @@ document.addEventListener("pointermove",e=>{
   if(!rzInfo)return;
   if(rzInfo.type==="col"){
     const dx=e.clientX-rzInfo.startX;
+    /* Excel-style: all selected columns get the SAME width (based on the dragged column) */
+    const w=Math.max(40,rzInfo.starts[rzInfo.base]+dx);
     rzInfo.cols.forEach(ci=>{
-      const w=Math.max(40,rzInfo.starts[ci]+dx);
       [...rzInfo.tbl.rows].forEach(r=>{const c=r.cells[ci];if(c)c.style.width=w+"px"});
     });
   }else{
     const dy=e.clientY-rzInfo.startY;
+    /* Excel-style: all selected rows get the SAME height */
+    const hgt=Math.max(24,rzInfo.starts.get(rzInfo.base)+dy);
     rzInfo.rows.forEach(r=>{
-      const hgt=Math.max(24,rzInfo.starts.get(r)+dy);
       r.style.height=hgt+"px";
       [...r.cells].forEach(c=>c.style.height=hgt+"px");
     });
