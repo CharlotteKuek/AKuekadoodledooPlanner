@@ -94,8 +94,10 @@ img{max-width:100%}
 #undobtn,#redobtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
 #undobtn:hover,#redobtn:hover{background:var(--line);color:var(--ink)}
 #undobtn:disabled,#redobtn:disabled{opacity:.28;cursor:default}
-#searchbtn,#fullbtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
-#searchbtn:hover,#fullbtn:hover{background:var(--line);color:var(--ink)}
+#searchbtn,#fullbtn,#refreshbtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
+#searchbtn:hover,#fullbtn:hover,#refreshbtn:hover{background:var(--line);color:var(--ink)}
+#refreshbtn.spinning svg{animation:spin .5s linear}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 /* search overlay */
 #searchoverlay{position:fixed;inset:0;z-index:90;background:rgba(30,25,20,.34);display:flex;align-items:flex-start;justify-content:center;padding-top:9vh}
 #searchbox{background:var(--card);width:min(620px,92vw);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.32);overflow:hidden;max-height:76vh;display:flex;flex-direction:column}
@@ -425,7 +427,14 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
+.ideas-notepad{min-height:60vh}
 .vtab .ve{font-size:15px}
+.ideas-notepad>*{position:relative;padding-right:30px}
+.line-note-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-soft);opacity:0;transition:.15s;background:transparent;border:none;cursor:pointer}
+.ideas-notepad>*:hover .line-note-btn{opacity:.5}
+.line-note-btn:hover{opacity:1!important;background:var(--line)}
+.line-note-btn.has{opacity:1;color:var(--accent)}
+.line-note-btn.has:hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}
 .vegg{margin-left:auto;padding:5px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;opacity:.75;transition:.2s;background:transparent;cursor:pointer;border:none;flex-shrink:0}
 .vegg:hover{opacity:1;transform:rotate(12deg) scale(1.08)}
 .vegg img{width:26px;height:26px;object-fit:contain}
@@ -496,6 +505,7 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
     <button id="addmain" title="New main tab"></button>
     <div class="bar-right">
       <button id="searchbtn" title="search everything (Ctrl/Cmd+K)"></button>
+      <button id="refreshbtn" title="refresh (reload latest)"></button>
       <button id="fullbtn" title="full screen"></button>
       <button id="undobtn" title="undo (up to 2 days of history)"></button>
       <button id="redobtn" title="redo"></button>
@@ -561,6 +571,8 @@ tbl:'<rect x="3" y="4" width="18" height="16" rx="1.5"/><line x1="3" y1="10" x2=
 clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
 search:'<circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>',
 expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
+refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
 copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M6 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v2"/>',
 repeat:'<polyline points="17 2 21 6 17 10"/><path d="M3 12V10a4 4 0 0 1 4-4h14"/><polyline points="7 22 3 18 7 14"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/>',
 eraser:'<path d="M4 15l7-7 6 6-4 4H8z"/><line x1="8" y1="18" x2="20" y2="18"/><line x1="11" y1="8" x2="17" y2="14"/>'
@@ -574,7 +586,11 @@ const ACCENTS=["#f4a9b8","#f2b58d","#e8c86e","#9cc59c","#8db6e2","#b79ede","#e69
 const SECCOLORS=[
   {ink:"#d95b5b",tint:"#fdecec"},{ink:"#e08a3c",tint:"#fdf1e6"},{ink:"#caa53d",tint:"#fbf6e4"},
   {ink:"#7aa874",tint:"#eef6ec"},{ink:"#4d9e93",tint:"#e7f4f1"},{ink:"#5b8dd6",tint:"#e9f0fb"},
-  {ink:"#7e6bd6",tint:"#efecfb"},{ink:"#c96ab0",tint:"#fbecf6"},{ink:"#8a877f",tint:"#f2f1ee"},{ink:"#3b3a37",tint:"#f2f0ec"}
+  {ink:"#7e6bd6",tint:"#efecfb"},{ink:"#c96ab0",tint:"#fbecf6"},{ink:"#8a877f",tint:"#f2f1ee"},{ink:"#3b3a37",tint:"#f2f0ec"},
+  {ink:"#e2657f",tint:"#fdeaf0"},{ink:"#d97b9e",tint:"#fceef4"},{ink:"#b06a5c",tint:"#f7ece8"},
+  {ink:"#6aa9c9",tint:"#e8f3f8"},{ink:"#5fae8e",tint:"#e8f5ef"},{ink:"#9ab04d",tint:"#f2f6e2"},
+  {ink:"#c99a4d",tint:"#f9f2e4"},{ink:"#8f7bd6",tint:"#f0ecfb"},{ink:"#b56ec9",tint:"#f7ecfb"},
+  {ink:"#5c8a8a",tint:"#e9f1f1"},{ink:"#a68a6d",tint:"#f4efe8"},{ink:"#7f9ed9",tint:"#edf1fb"}
 ];
 const TEXTCOLORS=SECCOLORS.map(c=>c.ink);
 /* lighten/adjust any hex or rgb colour for readability on a dark background */
@@ -1242,6 +1258,7 @@ function renderNav(){
   document.getElementById("undobtn").innerHTML=icon("undo",16);
   document.getElementById("redobtn").innerHTML=icon("redo",16);
   document.getElementById("searchbtn").innerHTML=icon("search",16);
+  document.getElementById("refreshbtn").innerHTML=icon("refresh",15);
   document.getElementById("fullbtn").innerHTML=icon("expand",16);
   document.getElementById("linkbtn").innerHTML=icon("link",14)+" link";
   const mm=document.getElementById("mains");mm.innerHTML="";
@@ -1445,38 +1462,67 @@ function renderGrid(sec){
   });
   return g;
 }
+function openLineNoteModal(lnid){
+  if(!S.ideas.lineNotes)S.ideas.lineNotes={};
+  const existing=S.ideas.lineNotes[lnid]||"";
+  const m=modal(`<h2>Notes for this line</h2>
+    <p class="note-small">Extra detail, links, sub-tasks — anything about this line. It stays tucked behind the 💬.</p>
+    <div class="notes-body richnote rich-host richdrop" contenteditable id="lnedit" data-ph="Write your extra notes here…" style="margin-top:10px;min-height:140px">${existing}</div>
+    <button class="bigbtn" id="lnsave" style="margin-top:14px">Save</button>`);
+  const ed=m.querySelector("#lnedit");
+  upgradeCheckboxes(ed);
+  setTimeout(()=>ed.focus(),60);
+  const save=()=>{
+    const html=cleanNoteHTML(ed);
+    const plain=html.replace(/<[^>]+>/g,"").trim();
+    if(plain||ed.querySelector("img,table")){S.ideas.lineNotes[lnid]=html}else{delete S.ideas.lineNotes[lnid]}
+    saveSoon();closeModal();
+    /* refresh the button colour */
+    const host=document.querySelector('[data-sync="ideasnotes"]');if(host)host.querySelectorAll(".line-note-btn").forEach(b=>{if(b.dataset.lnbtn===lnid)b.classList.toggle("has",!!S.ideas.lineNotes[lnid])});
+  };
+  m.querySelector("#lnsave").onclick=save;
+}
 function renderIdeasView(root){
-  S.ideas.groups.forEach(gr=>{
-    byId[gr.id]=gr;
-    const g=document.createElement("div");g.className="igroup";g.dataset.group=gr.id;g.dataset.dragrow="group";
-    if(gr.color)g.style.setProperty("--grp-ink",gr.color);
-    g.innerHTML=`<div class="igroup-head">
-      <span class="draghandle" data-draghandle title="drag to move">${icon("grip",15)}</span>
-      <button class="colordot" data-grpcolor="${gr.id}" style="background:${gr.color||"var(--accent)"}" title="category colour"></button>
-      <div class="igroup-name" contenteditable data-sync="groupname:${gr.id}" data-ph="Category name">${escHtml(gr.name)}</div>
-      <span class="igroup-tools"><button class="tool" data-cleargroup="${gr.id}" title="clear all ideas in this category">${icon("eraser",14)}</button><button class="tool warn" data-delgroup="${gr.id}" title="delete category">${icon("trash",14)}</button></span></div>`;
-    gr.items.forEach(it=>{
-      byId[it.id]=it;
-      const hasDetail=it.detail&&it.detail.length;
-      const d=document.createElement("div");d.className="idea"+(it.open?" open":"");d.dataset.idea=it.id;d.dataset.dragrow="idea";
-      d.innerHTML=`<div class="idea-head" data-toggle="${it.id}">
-        <span class="draghandle" data-draghandle>${icon("grip",13)}</span>
-        <span class="idea-arrow">${icon("chevR",13)}</span>
-        <div class="idea-title" contenteditable data-sync="ideatitle:${it.id}" data-ph="New idea">${escHtml(it.title)}</div>
-        <span class="idea-tools">
-          <button class="tool" data-ideainfo="${it.id}" title="open detail page"${hasDetail?' style="color:var(--accent)"':''}>${icon("info",13)}</button>
-          <button class="tool warn" data-delidea="${it.id}">${icon("x",13)}</button>
-        </span></div>
-        <div class="idea-body"><div class="itemlist ideabodylist richdrop" data-list="${it.id}">${""}</div></div>`;
-      g.appendChild(d);
-      renderItems(it.items,d.querySelector(".ideabodylist"));
-    });
-    const add=document.createElement("button");add.className="addline";add.dataset.addidea=gr.id;add.dataset.dragend="1";add.innerHTML=icon("plus",13)+" new idea";
-    g.appendChild(add);
-    root.appendChild(g);
+  /* one big shared notepad — no categories. Each line can expand into extra notes. */
+  if(typeof S.ideas.notesHtml!=="string"){
+    /* migrate any old category/idea content into the notepad once */
+    let html="";
+    if(S.ideas.groups&&S.ideas.groups.length){
+      S.ideas.groups.forEach(gr=>{
+        if(gr.name)html+=`<h3>${escHtml(gr.name)}</h3>`;
+        (gr.items||[]).forEach(it=>{
+          if(it.title)html+=`<div class="ck-line" data-ck="1"><input type="checkbox" class="ck" contenteditable="false"><span class="ck-txt">${escHtml(it.title)}</span></div>`;
+        });
+      });
+    }
+    S.ideas.notesHtml=html;
+  }
+  const d=document.createElement("div");
+  d.className="notes-body richnote rich-host richdrop ideas-notepad";
+  d.contentEditable="true";
+  d.dataset.sync="ideasnotes";
+  d.dataset.ph="One big notepad for everything you want to learn. Type [] for a checkbox, - for a bullet, # for a header. Hit the 💬 at the end of a line to add extra notes about it.";
+  d.innerHTML=S.ideas.notesHtml||"";
+  upgradeCheckboxes(d);
+  root.appendChild(d);
+  refreshLineNotes(d);
+}
+/* add a speech-bubble button at the end of each top-level line in the ideas notepad */
+function refreshLineNotes(host){
+  if(!host)return;
+  [...host.children].forEach(line=>{
+    if(line.querySelector(".line-note-btn"))return;
+    if(line.classList.contains("line-note-panel"))return;
+    const id=line.dataset.lnid||("ln"+uid());line.dataset.lnid=id;
+    const has=S.ideas.lineNotes&&S.ideas.lineNotes[id];
+    const btn=document.createElement("button");
+    btn.className="line-note-btn"+(has?" has":"");
+    btn.contentEditable="false";
+    btn.title="add / view notes for this line";
+    btn.innerHTML=icon("chat",13);
+    btn.dataset.lnbtn=id;
+    line.appendChild(btn);
   });
-  const ag=document.createElement("button");ag.className="addline";ag.id="addgroup";ag.dataset.dragend="1";ag.innerHTML=icon("plus",13)+" new category";
-  root.appendChild(ag);
 }
 function restoreFocus(){
   if(!pendingFocus)return;
@@ -1632,6 +1678,7 @@ function restoreLightColors(clone){
 }
 function stripTableUI(clone){
   clone.querySelectorAll(".rz-col,.rz-row").forEach(h=>h.remove());
+  clone.querySelectorAll(".line-note-btn").forEach(h=>h.remove());
   clone.querySelectorAll(".cell-sel").forEach(c=>c.classList.remove("cell-sel"));
   clone.querySelectorAll("table.tbl-active").forEach(t=>t.classList.remove("tbl-active"));
   clone.querySelectorAll("img.img-selected").forEach(i=>i.classList.remove("img-selected"));
@@ -1654,6 +1701,7 @@ document.addEventListener("input",e=>{
   const el=e.target.closest?e.target.closest("[data-sync]"):null;
   if(el){
     const[kind,id]=el.dataset.sync.split(":");
+    if(kind==="ideasnotes"){S.ideas.notesHtml=cleanNoteHTML(el);setTimeout(()=>refreshLineNotes(el),0);saveTyping();return}
     const o=byId[id];
     if(o){
       if(kind==="item")o.html=serializeHTML(el);
@@ -1685,8 +1733,7 @@ function openPalette(anchor,mode,onPick){
   cols.forEach(col=>{const d=document.createElement("div");d.style.background=col;d.onclick=ev=>{ev.stopPropagation();onPick(col);closePalettes()};p.appendChild(d)});
   const clr=document.createElement("div");clr.className="clr";clr.textContent="no colour";clr.onclick=ev=>{ev.stopPropagation();onPick(null);closePalettes()};p.appendChild(clr);
   document.body.appendChild(p);
-  const r=anchor.getBoundingClientRect();
-  p.style.left=Math.min(r.left,innerWidth-150)+"px";p.style.top=(r.bottom+6)+"px";
+  const r=anchor.getBoundingClientRect();placePopup(p,r);
   setTimeout(()=>document.addEventListener("click",closePalettes,{once:true}),0);
 }
 function closePalettes(){document.querySelectorAll(".palette").forEach(x=>x.remove())}
@@ -1694,6 +1741,8 @@ function closePalettes(){document.querySelectorAll(".palette").forEach(x=>x.remo
 document.addEventListener("click",e=>{
   const t=e.target, c=s=>e.target.closest(s);
   /* per-line menu (add note / turn into / delete) */
+  const lnb=c("[data-lnbtn]");
+  if(lnb){openLineNoteModal(lnb.dataset.lnbtn);return}
   const lm=c("[data-linemenu]");
   if(lm){openLineMenu(lm,lm.dataset.linemenu);return}
   /* expand-note works in viewer too when editable; tick too */
@@ -1894,6 +1943,16 @@ document.addEventListener("keydown",e=>{
     if(e.shiftKey)doRedo();else doUndo();
   }else if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="y"){
     if(viewer)return;e.preventDefault();doRedo();
+  }else if((e.metaKey||e.ctrlKey)&&e.shiftKey&&(e.key==="["||e.key==="]"||e.code==="BracketLeft"||e.code==="BracketRight")){
+    if(viewer)return;e.preventDefault();
+    /* switch between sub-tabs in the current main tab */
+    const subs=activeMain().subs;
+    if(subs.length<2)return;
+    let idx=subs.findIndex(s=>s.id===S.activeSub);if(idx<0)idx=0;
+    const back=(e.key==="["||e.code==="BracketLeft");
+    idx=(idx+(back?-1:1)+subs.length)%subs.length;
+    S.activeSub=subs[idx].id;detailView=false;ideasView=false;ideaDetailView=null;deadlinesView=false;
+    renderAll();saveSoon();
   }
 });
 /* ================= drag reorder ================= */
@@ -2561,18 +2620,41 @@ document.addEventListener("keydown",e=>{
     }
     autoLink(rn);
   }
+  if((e.key==="ArrowUp"||e.key==="ArrowDown")&&ckline){
+    const txt=ckline.querySelector(".ck-txt");
+    const s=getSelection();const r=s.rangeCount?s.getRangeAt(0):null;
+    if(r&&r.collapsed){
+      const atStart=r.startOffset===0&&(r.startContainer===txt||r.startContainer===txt.firstChild||txt.childNodes.length===0);
+      let atEnd=false;
+      try{const probe=document.createRange();probe.selectNodeContents(txt);probe.setStart(r.endContainer,r.endOffset);atEnd=probe.toString().length===0;}catch(_){}
+      if(e.key==="ArrowUp"&&atStart){
+        const prev=ckline.previousElementSibling;
+        if(prev){e.preventDefault();const t=prev.classList&&prev.classList.contains("ck-line")?prev.querySelector(".ck-txt"):prev;placeCaretEnd(t||prev);return;}
+      }
+      if(e.key==="ArrowDown"&&atEnd){
+        const next=ckline.nextElementSibling;
+        if(next){e.preventDefault();const t=next.classList&&next.classList.contains("ck-line")?next.querySelector(".ck-txt"):next;placeCaret(t||next);return;}
+      }
+    }
+  }
   if(e.key==="Enter"&&ckline){
     e.preventDefault();
     repairCkLine(ckline);
     const txt=ckline.querySelector(".ck-txt");
     const empty=!txt||txt.textContent.trim()==="";
+    const sel=getSelection();const r=sel.rangeCount?sel.getRangeAt(0):null;
+    const atStart=r&&r.collapsed&&r.startOffset===0&&(r.startContainer===txt||r.startContainer===txt.firstChild||txt.childNodes.length===0);
     if(empty){
       /* Enter on an empty checkbox exits to a normal paragraph */
       const p=document.createElement("div");p.innerHTML="<br>";
       ckline.replaceWith(p);placeCaret(p);
+    }else if(atStart){
+      /* Enter at the very start: insert an empty checkbox line ABOVE, keep caret on current text */
+      const div=newCkLineEl(ckline);
+      ckline.before(div);
+      placeCaret(txt);
     }else{
-      /* split at the caret: text before caret stays, text after moves to the new line */
-      const sel=getSelection();const r=sel.getRangeAt(0);
+      /* split at the caret: text after the caret moves to a new line below */
       const after=document.createRange();
       after.selectNodeContents(txt);
       try{after.setStart(r.endContainer,r.endOffset)}catch(_){}
@@ -3084,8 +3166,18 @@ function toggleFull(){
 
 document.addEventListener("click",e=>{
   if(e.target.closest("#searchbtn")){openSearch();return}
+  if(e.target.closest("#refreshbtn")){doRefresh();return}
   if(e.target.closest("#fullbtn")){toggleFull();return}
 });
+async function doRefresh(){
+  const btn=document.getElementById("refreshbtn");
+  if(btn){btn.classList.add("spinning");}
+  try{
+    const cloud=await cloudLoadPlanner();
+    if(cloud){S=migrateAny(cloud);try{await store.set(KEY,JSON.stringify(S))}catch(e){}fixActive();applyTheme();renderAll();markSaving("saved")}
+  }catch(e){}
+  if(btn)setTimeout(()=>btn.classList.remove("spinning"),500);
+}
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openSearch()}
   /* strikethrough: Cmd/Ctrl+Shift+X (works inside any editable) */
