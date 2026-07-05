@@ -1724,7 +1724,9 @@ function cleanNoteHTML(el){
   const clone=el.cloneNode(true);
   stripTableUI(clone);
   restoreLightColors(clone);
-  return clone.innerHTML;
+  /* remove zero-width caret spaces from empty lines, but keep them if that's the only content of a line */
+  clone.querySelectorAll(".ck-txt").forEach(t=>{if(t.textContent==="\u200B")t.textContent="";});
+  return clone.innerHTML.replace(/\u200B(?=.)/g,"");
 }
 document.addEventListener("input",e=>{
   const el=e.target.closest?e.target.closest("[data-sync]"):null;
@@ -2559,7 +2561,7 @@ function newCkLineEl(indentFrom){
   const div=document.createElement("div");div.className="ck-line";div.setAttribute("data-ck","1");
   const inp=document.createElement("input");inp.type="checkbox";inp.className="ck";inp.setAttribute("contenteditable","false");
   const txt=document.createElement("span");txt.className="ck-txt";
-  txt.appendChild(document.createTextNode(""));/* empty text node so the caret has somewhere to land */
+  txt.appendChild(document.createTextNode("\u200B"));/* zero-width space: gives the caret a real spot to land & blink */
   div.appendChild(inp);div.appendChild(txt);
   if(indentFrom&&indentFrom.dataset&&indentFrom.dataset.indent){div.dataset.indent=indentFrom.dataset.indent;div.style.marginLeft=indentFrom.style.marginLeft}
   return div;
@@ -2599,8 +2601,22 @@ function currentCkLine(){
   n=n.nodeType===1?n:n.parentElement;
   return n&&n.closest?n.closest(".ck-line"):null;
 }
-function placeCaretEnd(el){if(!el)return;el.focus&&el.focus();let t=el;if(el.classList&&el.classList.contains("ck-txt")){if(!el.firstChild)el.appendChild(document.createTextNode(""));}const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
-function placeCaret(el){if(!el)return;el.focus&&el.focus();if(el.classList&&el.classList.contains("ck-txt")&&!el.firstChild)el.appendChild(document.createTextNode(""));const r=document.createRange();r.selectNodeContents(el);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r)}
+function ensureCaretSpot(el){
+  /* make sure the ck-txt has a text node with a zero-width space for the caret */
+  if(el&&el.classList&&el.classList.contains("ck-txt")){
+    if(!el.firstChild||el.textContent==="")el.textContent="\u200B";
+  }
+}
+function placeCaretEnd(el){if(!el)return;ensureCaretSpot(el);const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
+function placeCaret(el){
+  if(!el)return;ensureCaretSpot(el);
+  const r=document.createRange();
+  /* if there's a zero-width space, put the caret AFTER it so it's visible and typing lands right */
+  const tn=el.firstChild&&el.firstChild.nodeType===3?el.firstChild:null;
+  if(tn&&tn.textContent==="\u200B"){r.setStart(tn,1);r.collapse(true)}
+  else{r.selectNodeContents(el);r.collapse(true)}
+  const s=getSelection();s.removeAllRanges();s.addRange(r);
+}
 /* turn the current line into a checkbox line, keeping any text already typed */
 function makeCheckboxLine(rn){
   const line=currentNoteLine(rn);
@@ -2689,7 +2705,7 @@ document.addEventListener("keydown",e=>{
     e.preventDefault();
     repairCkLine(ckline);
     const txt=ckline.querySelector(".ck-txt");
-    const empty=!txt||txt.textContent.trim()==="";
+    const empty=!txt||txt.textContent.replace(/\u200B/g,"").trim()==="";
     const sel=getSelection();const r=sel.rangeCount?sel.getRangeAt(0):null;
     const atStart=r&&r.collapsed&&r.startOffset===0&&(r.startContainer===txt||r.startContainer===txt.firstChild||txt.childNodes.length===0);
     if(empty){
@@ -2721,7 +2737,7 @@ document.addEventListener("keydown",e=>{
     const txt=ckline.querySelector(".ck-txt");
     const s=getSelection();const r=s.rangeCount?s.getRangeAt(0):null;
     const caretAtStart=r&&r.collapsed&&r.startOffset===0&&(r.startContainer===txt||r.startContainer===txt.firstChild||(txt.firstChild===null));
-    const empty=!txt||txt.textContent==="";
+    const empty=!txt||txt.textContent.replace(/\u200B/g,"")==="";
     if(empty||caretAtStart){
       e.preventDefault();
       const p=document.createElement("div");
