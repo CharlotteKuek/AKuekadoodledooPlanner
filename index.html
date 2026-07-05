@@ -422,6 +422,11 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
 .vtab .ve{font-size:15px}
+.vegg{margin-left:auto;padding:5px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;opacity:.75;transition:.2s;background:transparent;cursor:pointer;border:none;flex-shrink:0}
+.vegg:hover{opacity:1;transform:rotate(12deg) scale(1.08)}
+.vegg img{width:26px;height:26px;object-fit:contain}
+#creditegg .socials a{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;text-decoration:none}
+#creditegg .socials .li{background:#0a66c2}#creditegg .socials .tg{background:#2aabee}#creditegg .socials .ig{background:radial-gradient(circle at 30% 110%,#fdd551,#fd5,#ff543e 40%,#c837ab 70%)}
 #viewerbar button{color:#fff;text-decoration:underline;font-size:13px;margin-left:8px}
 .ro [contenteditable]{pointer-events:none}
 .credit{margin-top:64px;text-align:center;padding:34px 10px 6px;border-top:1px solid var(--line)}
@@ -447,6 +452,24 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
   .cell-name{font-size:14.5px}
   #banner{height:110px}
   .sec-tools,.igroup-tools,.idea-tools,.tabdel,.draghandle{opacity:.45}
+  /* deadlines: reclaim space for the task name */
+  .dl-row{gap:5px;padding:5px 4px}
+  .dl-task{font-size:14px}
+  .dl-due{width:66px;padding:4px 4px;font-size:11px}
+  .dl-tag{font-size:8.5px;padding:2px 5px;letter-spacing:0}
+  .dl-row .draghandle{display:none}
+  /* section headers on one line: smaller, tighter */
+  .sec-title{font-size:16px!important}
+  .sec-title::after{width:34px;height:3px}
+  /* keep the formatting toolbar visible while typing; let tabs scroll away */
+  #topbar{position:static}
+  #toolbar{position:sticky;top:0;z-index:45;background:color-mix(in srgb,var(--bg) 94%,white);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);margin:0 -16px;padding-left:16px;padding-right:16px}
+  /* table toolbar: compact bar pinned to the bottom so it doesn't cover the table */
+  #tablebar{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:100%;max-width:100%;max-height:132px;border-radius:14px 14px 0 0;padding:7px 9px;gap:5px}
+  #tablebar button{font-size:11px;padding:5px 7px}
+  #tablebar .grp{gap:3px}
+  #tablebar #tblselinfo{font-size:9px;width:100%}
+  #imgbar{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:100%;max-width:100%;border-radius:14px 14px 0 0}
 }
 </style>
 </head>
@@ -736,38 +759,31 @@ function initSupa(){
   }catch(e){supa=null}
   return supa;
 }
-/* a stable, unguessable id for THIS person's planner, kept in the browser */
+/* ---- account system: username + password. Same login on any device = same synced planner. ---- */
 const PLANNER_ID_KEY="planner-cloud-id";
-const PLANNER_CODE_KEY="planner-code";
+const ACCOUNT_USER_KEY="planner-username";
 let _plannerId=null;
-/* your planner is identified by a CODE. The same code on any device = the same planner.
-   The cloud id is derived from the code so we never store the raw code in the shared area. */
-function codeToId(code){return "pl_"+code.trim().toLowerCase().replace(/[^a-z0-9]/g,"")}
-function myPlannerCode(){
-  let c=null;try{c=localStorage.getItem(PLANNER_CODE_KEY)}catch(e){}
-  return c;
-}
-function setPlannerCode(code){
-  try{localStorage.setItem(PLANNER_CODE_KEY,code)}catch(e){}
-  _plannerId=codeToId(code);
+/* the cloud id is derived from the username (so the same username always maps to the same planner row) */
+function userToId(username){return "acct_"+username.trim().toLowerCase().replace(/[^a-z0-9]/g,"")}
+/* a lightweight password hash (not bank-grade, but fine for a personal planner) */
+function hashPw(pw){let h=5381;const s="kd$"+pw;for(let i=0;i<s.length;i++){h=((h<<5)+h)^s.charCodeAt(i)}return "h"+(h>>>0).toString(36)}
+function myUsername(){let u=null;try{u=localStorage.getItem(ACCOUNT_USER_KEY)}catch(e){}return u;}
+function setAccount(username){
+  try{localStorage.setItem(ACCOUNT_USER_KEY,username)}catch(e){}
+  _plannerId=userToId(username);
   try{localStorage.setItem(PLANNER_ID_KEY,_plannerId)}catch(e){}
+}
+function logoutAccount(){
+  try{localStorage.removeItem(ACCOUNT_USER_KEY);localStorage.removeItem(PLANNER_ID_KEY);localStorage.removeItem(KEY)}catch(e){}
+  _plannerId=null;
 }
 function myPlannerId(){
   if(_plannerId)return _plannerId;
-  /* prefer a code if one is set */
-  const c=myPlannerCode();
-  if(c){_plannerId=codeToId(c);return _plannerId}
-  /* otherwise fall back to any previously stored raw id */
+  const u=myUsername();
+  if(u){_plannerId=userToId(u);return _plannerId}
   let id=null;try{id=localStorage.getItem(PLANNER_ID_KEY)}catch(e){}
   if(!id){id="pl_"+uid()+uid()+uid();try{localStorage.setItem(PLANNER_ID_KEY,id)}catch(e){}}
   _plannerId=id;return id;
-}
-/* generate a friendly random code like "sunny-otter-4821" */
-function makeFriendlyCode(){
-  const a=["sunny","cozy","bright","lucky","happy","gentle","clever","swift","calm","merry","brave","kind"];
-  const b=["otter","panda","koala","fox","robin","lark","maple","willow","pebble","cloud","meadow","comet"];
-  const pick=x=>x[Math.floor(Math.random()*x.length)];
-  return pick(a)+"-"+pick(b)+"-"+Math.floor(1000+Math.random()*9000);
 }
 /* the id used for the PUBLIC view-only share (separate row so it only holds shared tabs) */
 function myShareId(){return "share_"+myPlannerId().slice(3)}
@@ -1043,24 +1059,6 @@ async function pushSharedEdits(){
 }
 async function load(){
   initSupa();
-  /* ---- direct code link: ?code=... loads that planner and links this device (button-free) ---- */
-  const cm=location.href.match(/[?&#]code=([^&#]+)/);
-  if(cm){
-    const code=decodeURIComponent(cm[1]);
-    setPlannerCode(code);
-    let cloud=null;
-    try{cloud=await cloudLoadPlanner()}catch(e){}
-    if(cloud){try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}}
-    /* strip the code from the URL so it isn't left visible, then load normally */
-    try{history.replaceState(null,"",location.pathname)}catch(e){}
-    if(cloud){S=migrateAny(cloud)}else{S=defaultState()}
-    if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
-    fixActive();applyTheme();renderAll();markSaving("saved");
-    try{document.execCommand("styleWithCSS",false,true)}catch(e){}
-    await loadHistory();
-    if(!cloud)saveNow();
-    return;
-  }
   /* ---- view-only share link: ?view=<id> opens a live read-only viewer ---- */
   const vm=location.href.match(/[?&#]view=([A-Za-z0-9_]+)/);
   if(vm){
@@ -1077,21 +1075,13 @@ async function load(){
     }
     return;
   }
+  const loggedIn=!!myUsername();
+  /* not logged in → show the login / sign-up screen */
+  if(!loggedIn){showCodeGate();return}
+  /* logged in: load from cloud (source of truth across devices), fall back to local */
   let raw=null;
-  try{const r=await store.get(KEY);if(r&&r.value)raw=JSON.parse(r.value)}catch(e){}
-  const hasCode=!!myPlannerCode();
-  /* Fresh device with no code and no local data → ask whether to link an existing planner or start new */
-  if(!raw&&!hasCode&&supa){
-    /* peek: is there anything in the cloud under the fallback id? if so, load it silently */
-    let cloudGuess=null;
-    try{cloudGuess=await cloudLoadPlanner()}catch(e){}
-    if(cloudGuess){raw=cloudGuess}
-    else{showCodeGate();return}
-  }
-  /* if we have a code but no local copy, pull this planner from the cloud */
-  if(!raw&&supa){
-    try{const cloud=await cloudLoadPlanner();if(cloud)raw=cloud}catch(e){}
-  }
+  if(supa){try{const cloud=await cloudLoadPlanner();if(cloud)raw=cloud}catch(e){}}
+  if(!raw){try{const r=await store.get(KEY);if(r&&r.value)raw=JSON.parse(r.value)}catch(e){}}
   /* legacy shared-board param still supported */
   const wantsBoard=/[?&#]board\b/.test(location.href);
   if(wantsBoard&&!raw){
@@ -1106,7 +1096,7 @@ async function load(){
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
   await loadHistory();
 }
-/* first-time-on-this-device screen: link an existing planner by code, or start a new one */
+/* first-time-on-this-device screen: log in to an existing account, or create a new one */
 function showCodeGate(){
   document.getElementById("topbar").style.display="none";
   document.getElementById("banner").style.display="none";
@@ -1114,60 +1104,70 @@ function showCodeGate(){
   g.innerHTML=`
     <div class="cg-card">
       <div class="cg-logo"><img src="${window.LOGO_B64}" alt="logo"></div>
-      <h2>Welcome to your planner</h2>
-      <p>If you already have a planner, enter your <b>planner code</b> to load it here and keep this device in sync.</p>
-      <input id="cg-code" placeholder="e.g. sunny-otter-4821" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text">
-      <button class="cg-primary" id="cg-load" type="button" onclick="window.gateLoad()">Load my planner</button>
+      <h2 id="cg-title">Welcome back</h2>
+      <p id="cg-sub">Log in to open your planner. Same login on any device keeps everything in sync.</p>
+      <input id="cg-user" placeholder="username" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <input id="cg-pass" type="password" placeholder="password" autocomplete="off">
+      <input id="cg-pass2" type="password" placeholder="confirm password" autocomplete="off" style="display:none">
+      <button class="cg-primary" id="cg-go" type="button" onclick="window.gateGo()">Log in</button>
       <div class="cg-or">or</div>
-      <button class="cg-ghost" id="cg-new" type="button" onclick="window.gateNew()">Start a brand-new planner</button>
+      <button class="cg-ghost" id="cg-switch" type="button" onclick="window.gateSwitch()">Create a new account</button>
       <p class="cg-note" id="cg-msg"></p>
     </div>`;
   document.body.appendChild(g);
   applyTheme();
   const msg=g.querySelector("#cg-msg");
-  const loadBtn=g.querySelector("#cg-load");
-  const newBtn=g.querySelector("#cg-new");
-  let busy=false;
-  const doLoad=async(ev)=>{
+  const goBtn=g.querySelector("#cg-go");
+  let mode="login",busy=false;
+  const setMode=(m)=>{
+    mode=m;
+    g.querySelector("#cg-title").textContent=m==="login"?"Welcome back":"Create your account";
+    g.querySelector("#cg-sub").textContent=m==="login"?"Log in to open your planner. Same login on any device keeps everything in sync.":"Pick a username and password. You'll use these to open your planner on any device.";
+    g.querySelector("#cg-pass2").style.display=m==="login"?"none":"";
+    goBtn.textContent=m==="login"?"Log in":"Create account";
+    g.querySelector("#cg-switch").textContent=m==="login"?"Create a new account":"I already have an account";
+    msg.textContent="";
+  };
+  const doGo=async(ev)=>{
     if(ev){ev.preventDefault();ev.stopPropagation();}
     if(busy)return;
-    const code=g.querySelector("#cg-code").value.trim();
-    if(!code){msg.textContent="Type your code first.";return}
-    busy=true;loadBtn.textContent="Loading…";msg.textContent="";
-    setPlannerCode(code);
+    const user=g.querySelector("#cg-user").value.trim();
+    const pass=g.querySelector("#cg-pass").value;
+    if(!user||!pass){msg.textContent="Enter a username and password.";return}
+    if(mode==="signup"){
+      const pass2=g.querySelector("#cg-pass2").value;
+      if(pass!==pass2){msg.textContent="Passwords don't match.";return}
+      if(pass.length<4){msg.textContent="Use a password of at least 4 characters.";return}
+    }
+    busy=true;goBtn.textContent="…";msg.textContent="";
+    setAccount(user);
     let cloud=null;
-    try{cloud=await Promise.race([cloudLoadPlanner(),new Promise(r=>setTimeout(()=>r(null),8000))])}catch(e){}
-    if(cloud){
+    try{cloud=await Promise.race([cloudLoadPlanner(),new Promise(r=>setTimeout(()=>r("timeout"),9000))])}catch(e){}
+    if(cloud==="timeout"){busy=false;setMode(mode);msg.textContent="Connection is busy — try again in a moment.";return}
+    if(mode==="login"){
+      if(!cloud){busy=false;setMode("login");msg.innerHTML="No account found with that username. Want to <b>create a new account</b> instead?";return}
+      if(!cloud.auth||cloud.auth!==hashPw(pass)){busy=false;setMode("login");msg.textContent="Wrong password. Try again.";return}
       try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}
       finishLoadFrom(cloud);
     }else{
-      busy=false;loadBtn.textContent="Load my planner";
-      msg.innerHTML="Couldn't reach your planner — check the code, or the connection may be busy. Try again in a moment.";
+      if(cloud){busy=false;setMode("signup");msg.textContent="That username is taken. Pick another, or log in.";return}
+      /* if this device already has a planner (e.g. migrating from the old system), keep that data */
+      let existing=null;
+      try{const r=await store.get(KEY);if(r&&r.value)existing=JSON.parse(r.value)}catch(e){}
+      S=existing?migrateAny(existing):defaultState();
+      S.auth=hashPw(pass);S.username=user;
+      try{await cloudSavePlanner()}catch(e){}
+      try{await store.set(KEY,JSON.stringify(S))}catch(e){}
+      finishLoadFrom(null);
     }
   };
-  const doNew=async(ev)=>{
-    if(ev){ev.preventDefault();ev.stopPropagation();}
-    if(busy)return;
-    busy=true;newBtn.textContent="Setting up…";
-    const code=makeFriendlyCode();
-    setPlannerCode(code);
-    S=defaultState();
-    try{await cloudSavePlanner()}catch(e){}
-    try{await store.set(KEY,JSON.stringify(S))}catch(e){}
-    finishLoadFrom(null,code);
-  };
-  window.gateLoad=doLoad;
-  window.gateNew=doNew;
-  /* also bind directly as a backup */
-  loadBtn.addEventListener("click",doLoad);
-  newBtn.addEventListener("click",doNew);
-  /* pressing Enter in the code box also loads */
-  g.querySelector("#cg-code").addEventListener("keydown",e=>{if(e.key==="Enter")doLoad(e)});
+  window.gateGo=doGo;
+  window.gateSwitch=()=>setMode(mode==="login"?"signup":"login");
+  goBtn.addEventListener("click",doGo);
+  g.querySelector("#cg-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
+  g.querySelector("#cg-pass2").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
 }
 function finishLoadFrom(raw,newCode){
-  if(newCode){
-    alert("Your planner code is:\n\n"+newCode+"\n\nWrite it down! Type it on your phone (or any device) to see this same planner there. You can always find it later in Settings.");
-  }
   /* reload so every button/toolbar handler binds cleanly to a fresh page */
   location.reload();
 }
@@ -1470,6 +1470,22 @@ function applyBannerTo(el,banner){
   if(banner.type==="gradient"){el.style.background=GRADS[banner.value]||GRADS.g1;el.style.backgroundSize="";el.style.backgroundPosition=""}
   else{el.style.background=`url(${banner.value})`;el.style.backgroundSize=(banner.zoom||100)+"%";el.style.backgroundPosition=(banner.posX!=null?banner.posX:50)+"% "+(banner.posY!=null?banner.posY:50)+"%";el.style.backgroundRepeat="no-repeat"}
 }
+function showCreditEgg(){
+  const ov=document.createElement("div");ov.className="overlay";ov.id="creditegg";
+  ov.innerHTML=`<div class="modal" style="max-width:400px;text-align:center">
+    <button class="close" id="eggclose">${icon("x",18)}</button>
+    <img src="${window.LOGO_B64}" alt="logo" style="width:88px;margin:6px auto 14px;display:block">
+    <p style="font-size:13.5px;line-height:1.65;color:var(--ink-soft);max-width:320px;margin:0 auto">This webapp was made by the amazing Charlotte Kuek! If you have issues or ideas to make it better, feel free to text me @charlottekuek on tele, ig, linkedin, or just deal with it I guess... HAHAHA ENJOYY!</p>
+    <div class="socials" style="display:flex;justify-content:center;gap:14px;margin-top:16px">
+      <a class="li" href="https://www.linkedin.com/in/charlottekuek/" target="_blank" title="LinkedIn"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM3 9h4v12H3zM9 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4.03 0 4.78 2.65 4.78 6.1V21h-4v-5.6c0-1.34-.03-3.06-1.87-3.06-1.87 0-2.16 1.46-2.16 2.97V21H9z"/></svg></a>
+      <a class="tg" href="https://t.me/charlottekuek" target="_blank" title="Telegram"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M21.9 4.3l-3.3 15.6c-.25 1.1-.9 1.37-1.83.85l-5.05-3.72-2.44 2.35c-.27.27-.5.5-1.02.5l.36-5.14L18.4 6.3c.4-.36-.09-.56-.62-.2L6.6 13.16 1.7 11.6c-1.06-.33-1.08-1.06.22-1.57L20.5 2.8c.88-.33 1.65.2 1.4 1.5z"/></svg></a>
+      <a class="ig" href="https://www.instagram.com/charlottekuek/" target="_blank" title="Instagram"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none"/></svg></a>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  ov.querySelector("#eggclose").onclick=()=>ov.remove();
+}
 function renderViewer(sh){
   viewer=true;sharedRef=sh;viewerCanEdit=false;
   document.getElementById("topbar").style.display="none";
@@ -1500,6 +1516,12 @@ function renderViewer(sh){
     t.onclick=()=>{viewerActiveSub=f.sub.id;viewerShowDetail=false;renderViewer(sh)};
     bar.appendChild(t);
   });
+  /* Easter egg: sunflower logo at the end of the tabs — tap for the credit */
+  const egg=document.createElement("button");
+  egg.className="vegg";egg.title="✨";
+  egg.innerHTML=`<img src="${window.LOGO_B64}" alt="✨">`;
+  egg.onclick=showCreditEgg;
+  bar.appendChild(egg);
 
   /* ---- banner ---- */
   const banner=document.getElementById("banner");
@@ -1918,6 +1940,28 @@ document.addEventListener("keydown",e=>{
         setTimeout(()=>{const el=document.querySelector(`[data-sync="dltask:${nr.id}"]`);if(el)el.focus()},0);return}
     }
   }
+  if(dt&&e.key==="Backspace"){
+    const empty=dt.textContent.trim()==="";
+    const s=getSelection();
+    const atStart=s.rangeCount&&s.getRangeAt(0).collapsed&&s.getRangeAt(0).startOffset===0;
+    if(empty||atStart){
+      const rid=dt.dataset.sync.split(":")[1];
+      for(const m of S.mains)for(const sub of m.subs)for(const sec of sub.sections)if(sec.type==="deadlines"){
+        const i=sec.rows.findIndex(x=>x.id===rid);
+        if(i>-1){
+          /* only delete if empty; if not empty but caret at start, don't delete (avoid losing text) */
+          if(!empty)return;
+          if(sec.rows.length<=1)return; /* keep at least one row */
+          e.preventDefault();
+          sec.rows.splice(i,1);
+          const prev=sec.rows[i-1];
+          renderPage();saveSoon();
+          if(prev)setTimeout(()=>{const el=document.querySelector(`[data-sync="dltask:${prev.id}"]`);if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const sel=getSelection();sel.removeAllRanges();sel.addRange(r)}},0);
+          return;
+        }
+      }
+    }
+  }
 });
 /* ================= item keyboard ================= */
 function textBeforeCaret(){
@@ -2276,13 +2320,13 @@ function openSettings(){
     <h3>Export this tab</h3>
     <button class="bigbtn" id="pdfbtn" style="background:var(--brown)">${icon("doc",15)} Export current tab to PDF</button>
     <p class="note-small">Opens your browser's print dialog for the tab you're viewing — choose "Save as PDF" as the destination.</p>
-    <h3>Sync across your devices</h3>
-    <p class="note-small">Your <b>planner code</b> links this planner across your own devices. Type it on your phone (or any device) to see and edit this same planner there — changes sync automatically. Keep it private: anyone with the code can open your full planner.</p>
+    <h3>Your account</h3>
+    <p class="note-small">You're logged in below. Log in with the same username and password on any device — phone, laptop — to see and edit this same planner everywhere; changes sync automatically.</p>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="plannercode" readonly value="" style="flex:1;min-width:160px;font-weight:700;font-size:14px" placeholder="(no code yet)">
+      <input type="text" id="plannercode" readonly value="" style="flex:1;min-width:160px;font-weight:700;font-size:14px" placeholder="(not logged in)">
       <button class="bigbtn" id="copycode" style="margin:0">${icon("copy",14)} Copy</button>
     </div>
-    <button class="ghostbtn" id="setcodebtn" style="margin-top:8px">Set my own code instead</button>
+    <button class="ghostbtn" id="setcodebtn" style="margin-top:8px">Log out</button>
     <h3>Back up your data</h3>
     <button class="bigbtn" id="exportbtn">${icon("down",15)} Download backup (.json)</button>
     <label class="ghostbtn" style="cursor:pointer">${icon("up",15)} Restore from backup<input type="file" id="importfile" accept=".json,application/json" hidden></label>
@@ -2347,24 +2391,20 @@ function openSettings(){
   m.querySelector("#sharesw").onclick=async ev=>{S.share.on=!S.share.on;ev.target.classList.toggle("on",S.share.on);if(S.share.on){await publishShared()}else{await unpublishShared()}refreshLink();saveSoon()};
   m.querySelector("#sharetitle").addEventListener("input",e=>{S.shareTitle=e.target.value;saveSoon()});
   m.querySelector("#pdfbtn").onclick=()=>{closeModal();setTimeout(()=>window.print(),120)};
-  /* planner code (cross-device sync) */
+  /* account (cross-device sync) */
   (function(){
     const ci=m.querySelector("#plannercode");if(!ci)return;
-    let code=myPlannerCode();
-    if(!code){
-      /* existing planner without a code yet: assign one now so it can sync */
-      code=makeFriendlyCode();setPlannerCode(code);
-      /* re-save under the code-derived id so the cloud has it */
-      cloudSavePlanner().catch(()=>{});
+    ci.value=myUsername()||"(not logged in)";
+    const copyBtn=m.querySelector("#copycode");if(copyBtn)copyBtn.style.display="none";
+    const logoutBtn=m.querySelector("#setcodebtn");
+    if(logoutBtn){
+      logoutBtn.textContent="Log out";
+      logoutBtn.onclick=()=>{
+        if(confirm("Log out of \""+(myUsername()||"")+"\"? Your planner stays safe in the cloud — log back in anytime with your username and password.")){
+          logoutAccount();location.reload();
+        }
+      };
     }
-    ci.value=code;
-    m.querySelector("#copycode").onclick=()=>{
-      ci.select();navigator.clipboard?.writeText(ci.value).then(()=>{const b=m.querySelector("#copycode");const o=b.innerHTML;b.innerHTML="Copied!";setTimeout(()=>b.innerHTML=o,1400)}).catch(()=>{try{document.execCommand("copy")}catch(e){}});
-    };
-    m.querySelector("#setcodebtn").onclick=()=>{
-      const nc=prompt("Choose your own planner code (letters/numbers/dashes). Use something memorable but private:",ci.value);
-      if(nc&&nc.trim()){setPlannerCode(nc.trim());cloudSavePlanner().catch(()=>{});ci.value=myPlannerCode();alert("Code updated to:\n\n"+myPlannerCode()+"\n\nType this on your other devices to sync.");}
-    };
   })();
   m.querySelector("#exportbtn").onclick=()=>{const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="planner-backup-"+new Date().toISOString().slice(0,10)+".json";a.click()};
   m.querySelector("#importfile").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
@@ -2909,6 +2949,7 @@ function unmergeCells(tbl,sel){
 }
 function positionTableBar(tbl){
   const bar=document.getElementById("tablebar");if(!bar)return;
+  if(isMobile())return; /* on mobile the bar is pinned to the bottom via CSS */
   const r=tbl.getBoundingClientRect();
   const bw=bar.offsetWidth||340, bh=bar.offsetHeight||60;
   const pad=8;
