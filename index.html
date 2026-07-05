@@ -429,12 +429,11 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .vtab.active{background:var(--brown);color:#fff}
 .ideas-notepad{min-height:60vh}
 .vtab .ve{font-size:15px}
-.ideas-notepad>*{position:relative;padding-right:30px}
-.line-note-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-soft);opacity:0;transition:.15s;background:transparent;border:none;cursor:pointer}
-.ideas-notepad>*:hover .line-note-btn{opacity:.5}
-.line-note-btn:hover{opacity:1!important;background:var(--line)}
-.line-note-btn.has{opacity:1;color:var(--accent)}
-.line-note-btn.has:hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}
+#ideas-line-btn{position:fixed;z-index:55;width:26px;height:26px;border-radius:7px;display:none;align-items:center;justify-content:center;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.08);cursor:pointer;opacity:.85}
+#ideas-line-btn:hover{opacity:1;color:var(--accent)}
+#ideas-line-btn.has{color:var(--accent);border-color:var(--accent);opacity:1}
+.ideas-notepad>*.has-linenote{position:relative}
+.ideas-notepad>*.has-linenote::after{content:"";position:absolute;right:-14px;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .vegg{margin-left:auto;padding:5px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;opacity:.75;transition:.2s;background:transparent;cursor:pointer;border:none;flex-shrink:0}
 .vegg:hover{opacity:1;transform:rotate(12deg) scale(1.08)}
 .vegg img{width:26px;height:26px;object-fit:contain}
@@ -992,7 +991,7 @@ function migrateAny(raw){
   return s;
 }
 
-let S=null, byId={}, pendingFocus=null, ideasView=false, detailView=null, ideaDetailView=null, deadlinesView=false, viewer=false, viewerCanEdit=false, lastList=null;
+let S=null, byId={}, pendingFocus=null, pendingCaret=null, ideasView=false, detailView=null, ideaDetailView=null, deadlinesView=false, viewer=false, viewerCanEdit=false, lastList=null;
 
 /* ================= persistence & sharing ================= */
 let saveTimer=null;
@@ -1477,8 +1476,7 @@ function openLineNoteModal(lnid){
     const plain=html.replace(/<[^>]+>/g,"").trim();
     if(plain||ed.querySelector("img,table")){S.ideas.lineNotes[lnid]=html}else{delete S.ideas.lineNotes[lnid]}
     saveSoon();closeModal();
-    /* refresh the button colour */
-    const host=document.querySelector('[data-sync="ideasnotes"]');if(host)host.querySelectorAll(".line-note-btn").forEach(b=>{if(b.dataset.lnbtn===lnid)b.classList.toggle("has",!!S.ideas.lineNotes[lnid])});
+    const host=document.querySelector('[data-sync="ideasnotes"]');if(host)markLinesWithNotes(host);
   };
   m.querySelector("#lnsave").onclick=save;
 }
@@ -1505,30 +1503,61 @@ function renderIdeasView(root){
   d.innerHTML=S.ideas.notesHtml||"";
   upgradeCheckboxes(d);
   root.appendChild(d);
-  refreshLineNotes(d);
+  setupIdeasLineButton();
+  markLinesWithNotes(d);
 }
 /* add a speech-bubble button at the end of each top-level line in the ideas notepad */
 function refreshLineNotes(host){
+  /* no longer injects buttons into lines (that corrupted editing).
+     A single floating button (see setupIdeasLineButton) tracks the hovered/active line instead. */
+  if(!host)return;
+  markLinesWithNotes(host);
+}
+/* give lines that have saved notes a small dot marker via a class (CSS only, no injected nodes) */
+function markLinesWithNotes(host){
   if(!host)return;
   [...host.children].forEach(line=>{
-    if(line.querySelector(".line-note-btn"))return;
-    if(line.classList.contains("line-note-panel"))return;
-    const id=line.dataset.lnid||("ln"+uid());line.dataset.lnid=id;
+    if(!line.dataset)return;
+    let id=line.dataset.lnid;
+    if(!id){id="ln"+uid();line.dataset.lnid=id}
     const has=S.ideas.lineNotes&&S.ideas.lineNotes[id];
-    const btn=document.createElement("button");
-    btn.className="line-note-btn"+(has?" has":"");
-    btn.contentEditable="false";
-    btn.title="add / view notes for this line";
-    btn.innerHTML=icon("chat",13);
-    btn.dataset.lnbtn=id;
-    line.appendChild(btn);
+    line.classList.toggle("has-linenote",!!has);
   });
 }
+/* one floating speech-bubble button that follows the hovered line in the ideas notepad */
+let ideasBtnEl=null,ideasBtnLine=null;
+function setupIdeasLineButton(){
+  if(ideasBtnEl)return;
+  ideasBtnEl=document.createElement("button");
+  ideasBtnEl.id="ideas-line-btn";ideasBtnEl.title="add / view notes for this line";
+  ideasBtnEl.innerHTML=icon("chat",14);
+  ideasBtnEl.style.display="none";
+  ideasBtnEl.onmousedown=e=>e.preventDefault();
+  ideasBtnEl.onclick=e=>{e.preventDefault();e.stopPropagation();if(ideasBtnLine){if(!ideasBtnLine.dataset.lnid)ideasBtnLine.dataset.lnid="ln"+uid();openLineNoteModal(ideasBtnLine.dataset.lnid)}};
+  document.body.appendChild(ideasBtnEl);
+  document.addEventListener("pointermove",e=>{
+    const np=document.querySelector(".ideas-notepad");if(!np){hideIdeasBtn();return}
+    const line=e.target.closest?e.target.closest(".ideas-notepad>*"):null;
+    if(line&&line.parentElement&&line.parentElement.classList.contains("ideas-notepad")){positionIdeasBtn(line)}
+  });
+  document.addEventListener("scroll",()=>{if(ideasBtnLine&&document.contains(ideasBtnLine))positionIdeasBtn(ideasBtnLine);else hideIdeasBtn()},true);
+}
+function positionIdeasBtn(line){
+  if(!ideasBtnEl)return;
+  ideasBtnLine=line;
+  const has=line.classList.contains("has-linenote");
+  ideasBtnEl.classList.toggle("has",has);
+  const r=line.getBoundingClientRect();
+  ideasBtnEl.style.display="flex";
+  ideasBtnEl.style.left=(r.right-26)+"px";
+  ideasBtnEl.style.top=(r.top+r.height/2-13)+"px";
+}
+function hideIdeasBtn(){if(ideasBtnEl){ideasBtnEl.style.display="none";ideasBtnLine=null}}
 function restoreFocus(){
   if(!pendingFocus)return;
   const el=document.querySelector(`[data-sync="item:${pendingFocus}"]`);
-  pendingFocus=null;
-  if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
+  const caret=pendingCaret;pendingFocus=null;pendingCaret=null;
+  if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(caret!=="start"?false:true);const s=getSelection();s.removeAllRanges();s.addRange(r)}
 }
 /* ================= viewer (live view-only share) ================= */
 let viewerActiveSub=null;
@@ -1701,7 +1730,7 @@ document.addEventListener("input",e=>{
   const el=e.target.closest?e.target.closest("[data-sync]"):null;
   if(el){
     const[kind,id]=el.dataset.sync.split(":");
-    if(kind==="ideasnotes"){S.ideas.notesHtml=cleanNoteHTML(el);setTimeout(()=>refreshLineNotes(el),0);saveTyping();return}
+    if(kind==="ideasnotes"){S.ideas.notesHtml=cleanNoteHTML(el);setTimeout(()=>markLinesWithNotes(el),0);saveTyping();return}
     const o=byId[id];
     if(o){
       if(kind==="item")o.html=serializeHTML(el);
@@ -1741,8 +1770,6 @@ function closePalettes(){document.querySelectorAll(".palette").forEach(x=>x.remo
 document.addEventListener("click",e=>{
   const t=e.target, c=s=>e.target.closest(s);
   /* per-line menu (add note / turn into / delete) */
-  const lnb=c("[data-lnbtn]");
-  if(lnb){openLineNoteModal(lnb.dataset.lnbtn);return}
   const lm=c("[data-linemenu]");
   if(lm){openLineMenu(lm,lm.dataset.linemenu);return}
   /* expand-note works in viewer too when editable; tick too */
@@ -2061,9 +2088,29 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&!e.shiftKey){
     e.preventDefault();
     if(empty&&it.kind!=="text"){it.kind="text";it.done=false;pendingFocus=it.id;rerender();saveSoon();return}
+    /* Enter at the very start of a non-empty line: insert a new line ABOVE, keep caret on current */
+    const b=textBeforeCaret();
+    const atStart=b&&b.text==="";
+    if(atStart&&!empty){
+      const nk=it.kind==="header"?"text":it.kind;
+      const ni=newItem(nk);ni.indent=it.indent;home.arr.splice(home.idx,0,ni);
+      pendingFocus=it.id;pendingCaret="end";rerender();saveSoon();return;
+    }
     const nk=it.kind==="header"?"text":it.kind;
     const ni=newItem(nk);ni.indent=it.indent;home.arr.splice(home.idx+1,0,ni);
     pendingFocus=ni.id;rerender();saveSoon();
+  }else if((e.key==="ArrowUp"||e.key==="ArrowDown")){
+    /* move between items when the caret is at the very top/bottom edge of this line */
+    const s=getSelection();const r=s.rangeCount?s.getRangeAt(0):null;if(!r||!r.collapsed)return;
+    const probe=document.createRange();probe.selectNodeContents(el);
+    let beforeLen=0,afterLen=0;
+    try{const bR=document.createRange();bR.selectNodeContents(el);bR.setEnd(r.endContainer,r.endOffset);beforeLen=bR.toString().length;
+        const aR=document.createRange();aR.selectNodeContents(el);aR.setStart(r.endContainer,r.endOffset);afterLen=aR.toString().length;}catch(_){}
+    if(e.key==="ArrowUp"&&beforeLen===0){
+      if(home.idx>0){e.preventDefault();pendingFocus=home.arr[home.idx-1].id;pendingCaret="end";rerender();}
+    }else if(e.key==="ArrowDown"&&afterLen===0){
+      if(home.idx<home.arr.length-1){e.preventDefault();pendingFocus=home.arr[home.idx+1].id;pendingCaret="start";rerender();}
+    }
   }else if(e.key==="Tab"){
     e.preventDefault();
     if(e.shiftKey){if((it.indent||0)>0){it.indent--;el.closest(".item").dataset.indent=it.indent;saveSoon()}}
@@ -2512,6 +2559,7 @@ function newCkLineEl(indentFrom){
   const div=document.createElement("div");div.className="ck-line";div.setAttribute("data-ck","1");
   const inp=document.createElement("input");inp.type="checkbox";inp.className="ck";inp.setAttribute("contenteditable","false");
   const txt=document.createElement("span");txt.className="ck-txt";
+  txt.appendChild(document.createTextNode(""));/* empty text node so the caret has somewhere to land */
   div.appendChild(inp);div.appendChild(txt);
   if(indentFrom&&indentFrom.dataset&&indentFrom.dataset.indent){div.dataset.indent=indentFrom.dataset.indent;div.style.marginLeft=indentFrom.style.marginLeft}
   return div;
@@ -2551,8 +2599,8 @@ function currentCkLine(){
   n=n.nodeType===1?n:n.parentElement;
   return n&&n.closest?n.closest(".ck-line"):null;
 }
-function placeCaretEnd(el){if(!el)return;const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
-function placeCaret(el){if(!el)return;const r=document.createRange();r.selectNodeContents(el);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r)}
+function placeCaretEnd(el){if(!el)return;el.focus&&el.focus();let t=el;if(el.classList&&el.classList.contains("ck-txt")){if(!el.firstChild)el.appendChild(document.createTextNode(""));}const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}
+function placeCaret(el){if(!el)return;el.focus&&el.focus();if(el.classList&&el.classList.contains("ck-txt")&&!el.firstChild)el.appendChild(document.createTextNode(""));const r=document.createRange();r.selectNodeContents(el);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r)}
 /* turn the current line into a checkbox line, keeping any text already typed */
 function makeCheckboxLine(rn){
   const line=currentNoteLine(rn);
