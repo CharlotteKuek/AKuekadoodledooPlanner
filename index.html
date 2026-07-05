@@ -210,6 +210,7 @@ body.subdragging .subtab{cursor:grabbing}
 .rich-host table.tbl-active{outline:1px dashed color-mix(in srgb,var(--accent) 45%,white);outline-offset:3px}
 .rich-host table.rs td{cursor:col-resize}
 body.celldrag,body.celldrag *{-webkit-user-select:none!important;user-select:none!important}
+.notes-body,.richnote,.dl-task,.txt,.rich-host,[contenteditable]{-webkit-user-select:text;user-select:text}
 img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 #imgbar,#tablebar{position:fixed;z-index:82;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:min(520px,94vw);max-height:min(340px,70vh);overflow:auto}
 #imgbar input[type=range]{width:120px;accent-color:var(--accent)}
@@ -250,6 +251,7 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .dl-row.bkt-soon{border-left-color:#e8837a;background:rgba(232,131,122,.05)}
 .dl-row.bkt-future{border-left-color:#f0c0ba}
 .dl-tag{flex-shrink:0;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.02em;white-space:nowrap;text-transform:uppercase}
+.dl-tag .tg-short{display:none}
 .dl-tag.tag-overdue{background:#7a1616;color:#fff}
 .dl-tag.tag-asap{background:#c0392b;color:#fff}
 .dl-tag.tag-soon{background:#f2d0cb;color:#8a3730}
@@ -448,22 +450,38 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
   #tabtitle{font-size:26px}
   .grid{gap:9px}
   .cell{padding:9px 9px 2px}
-  .item .txt{font-size:14px}
-  .cell-name{font-size:14.5px}
+  .cell-name{font-size:12.5px}
   #banner{height:110px}
   .sec-tools,.igroup-tools,.idea-tools,.tabdel,.draghandle{opacity:.45}
+  /* content fonts three sizes smaller on mobile (15 -> 12) */
+  .item .txt{font-size:12px}
+  .notes-body,.richnote{font-size:12.5px}
+  .richnote .ck-txt{font-size:12.5px}
+  .dl-task{font-size:12px}
+  .idea-body,.idea-title,.tasks-body{font-size:12.5px}
+  .rich-host td{font-size:12px}
   /* deadlines: reclaim space for the task name */
   .dl-row{gap:5px;padding:5px 4px}
-  .dl-task{font-size:14px}
-  .dl-due{width:66px;padding:4px 4px;font-size:11px}
-  .dl-tag{font-size:8.5px;padding:2px 5px;letter-spacing:0}
+  .dl-due{width:58px;padding:4px 3px;font-size:10.5px;margin-left:auto}
+  .dl-tag{font-size:8px;padding:2px 5px;letter-spacing:0}
+  .dl-tag .tg-full{display:none}
+  .dl-tag .tg-short{display:inline}
   .dl-row .draghandle{display:none}
+  .dl-row .dl-del{display:none}
   /* section headers on one line: smaller, tighter */
   .sec-title{font-size:16px!important}
   .sec-title::after{width:34px;height:3px}
-  /* keep the formatting toolbar visible while typing; let tabs scroll away */
+  /* keep the formatting toolbar ALWAYS visible at the top while typing */
   #topbar{position:static}
-  #toolbar{position:sticky;top:0;z-index:45;background:color-mix(in srgb,var(--bg) 94%,white);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);margin:0 -16px;padding-left:16px;padding-right:16px}
+  #subtray{position:static}
+  #toolbar{position:fixed;top:0;left:0;right:0;z-index:60;background:color-mix(in srgb,var(--bg) 96%,white);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:6px 10px;gap:1px;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+  #toolbar::-webkit-scrollbar{display:none}
+  #toolbar>button{padding:5px 6px;font-size:12.5px;flex-shrink:0}
+  #toolbar .sep{margin:0 3px}
+  #fssize{min-width:20px;font-size:11px}
+  /* push content down so it isn't hidden under the fixed toolbar */
+  #page{padding-top:46px}
+  #banner{margin-top:0}
   /* table toolbar: compact bar pinned to the bottom so it doesn't cover the table */
   #tablebar{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:100%;max-width:100%;max-height:132px;border-radius:14px 14px 0 0;padding:7px 9px;gap:5px}
   #tablebar button{font-size:11px;padding:5px 7px}
@@ -1367,12 +1385,13 @@ function renderDeadlines(sec){
     const row=document.createElement("div");row.className="dl-row bkt-"+bucket.key+(r.done?" done":"");row.dataset.dlrow=r.id;row.dataset.dragrow="dlrow";
     const od=daysUntil(r.due);
     let tag="";
+    const mk=(cls,full,short)=>`<span class="dl-tag ${cls}"><span class="tg-full">${full}</span><span class="tg-short">${short}</span></span>`;
     if(!r.done&&r.due){
-      if(od<0)tag=`<span class="dl-tag tag-overdue">overdue${od<-1?" · "+(-od)+"d":""}</span>`;
-      else if(od===0)tag=`<span class="dl-tag tag-asap">due today</span>`;
-      else if(od===1)tag=`<span class="dl-tag tag-asap">due tomorrow</span>`;
-      else if(od<=2)tag=`<span class="dl-tag tag-asap">${od} days</span>`;
-      else if(od<=7)tag=`<span class="dl-tag tag-soon">this week</span>`;
+      if(od<0)tag=mk("tag-overdue","overdue"+(od<-1?" · "+(-od)+"d":""),"OVERDUE"+(od<-1?" "+(-od)+"d":""));
+      else if(od===0)tag=mk("tag-asap","due today","TODAY");
+      else if(od===1)tag=mk("tag-asap","due tomorrow","DUE TMR");
+      else if(od<=2)tag=mk("tag-asap",od+" days",od+"D");
+      else if(od<=7)tag=mk("tag-soon","this week","THIS WK");
     }
     row.innerHTML=`
       <span class="draghandle" data-draghandle title="drag to reorder">${icon("grip",14)}</span>
@@ -2100,7 +2119,7 @@ function applyFontSize(px){
 }
 function stepFontSize(dir){
   const cur=currentFontSizePx()||16;
-  applyFontSize(cur+dir*2);
+  applyFontSize(cur+dir);
 }
 /* save the selection the instant you press a size control, before focus leaves the text */
 ["fsdown","fsup"].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener("mousedown",e=>{e.preventDefault();const s=getSelection();if(s.rangeCount&&!s.isCollapsed)savedFsRange=s.getRangeAt(0).cloneRange()})});
