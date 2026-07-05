@@ -1115,7 +1115,6 @@ function showCodeGate(){
       <p class="cg-note" id="cg-msg"></p>
     </div>`;
   document.body.appendChild(g);
-  applyTheme();
   const msg=g.querySelector("#cg-msg");
   const goBtn=g.querySelector("#cg-go");
   let mode="login",busy=false;
@@ -1131,6 +1130,7 @@ function showCodeGate(){
   const doGo=async(ev)=>{
     if(ev){ev.preventDefault();ev.stopPropagation();}
     if(busy)return;
+    try{
     const user=g.querySelector("#cg-user").value.trim();
     const pass=g.querySelector("#cg-pass").value;
     if(!user||!pass){msg.textContent="Enter a username and password.";return}
@@ -1151,7 +1151,6 @@ function showCodeGate(){
       finishLoadFrom(cloud);
     }else{
       if(cloud){busy=false;setMode("signup");msg.textContent="That username is taken. Pick another, or log in.";return}
-      /* if this device already has a planner (e.g. migrating from the old system), keep that data */
       let existing=null;
       try{const r=await store.get(KEY);if(r&&r.value)existing=JSON.parse(r.value)}catch(e){}
       S=existing?migrateAny(existing):defaultState();
@@ -1160,18 +1159,16 @@ function showCodeGate(){
       try{await store.set(KEY,JSON.stringify(S))}catch(e){}
       finishLoadFrom(null);
     }
+    }catch(err){busy=false;setMode(mode);msg.textContent="Error: "+(err&&err.message?err.message:err);}
   };
   window.gateGo=doGo;
   window.gateSwitch=()=>setMode(mode==="login"?"signup":"login");
   const switchBtn=g.querySelector("#cg-switch");
-  /* bind multiple event types for reliability, but dedupe so a single tap fires once */
-  let lastFire=0;
-  const once=(fn)=>(e)=>{e.preventDefault();const now=Date.now();if(now-lastFire<400)return;lastFire=now;fn(e);};
-  const goOnce=once(doGo), switchOnce=once(()=>window.gateSwitch());
-  ["pointerup","click"].forEach(evt=>{
-    goBtn.addEventListener(evt,goOnce,{passive:false});
-    switchBtn.addEventListener(evt,switchOnce,{passive:false});
-  });
+  /* simplest, most reliable binding: direct onclick property */
+  goBtn.onclick=(e)=>{if(e)e.preventDefault();doGo(e);};
+  switchBtn.onclick=(e)=>{if(e)e.preventDefault();window.gateSwitch();};
+  /* Enter in either password field submits — works even if buttons misbehave */
+  g.querySelector("#cg-user").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
   g.querySelector("#cg-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
   g.querySelector("#cg-pass2").addEventListener("keydown",e=>{if(e.key==="Enter")doGo(e)});
 }
@@ -1186,6 +1183,7 @@ function fixActive(){
   let sub=m.subs.find(x=>x.id===S.activeSub)||m.subs[0];S.activeSub=sub.id;
 }
 function applyTheme(){
+  if(!S||!S.settings){document.documentElement.setAttribute("data-theme","light");return;}
   const root=document.documentElement;
   const r=root.style;
   const dark=S.settings.theme==="dark";
