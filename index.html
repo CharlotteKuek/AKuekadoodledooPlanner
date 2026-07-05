@@ -2709,8 +2709,8 @@ document.addEventListener("keydown",e=>{
       const moved=after.extractContents();
       const div=newCkLineEl(ckline);
       const ntxt=div.querySelector(".ck-txt");
-      ntxt.appendChild(moved);
-      if(!ntxt.textContent)ntxt.innerHTML="";
+      /* newCkLineEl already gives ntxt an empty text node; append any moved content after it */
+      if(moved&&moved.textContent)ntxt.appendChild(moved);
       ckline.after(div);
       placeCaret(ntxt);
     }
