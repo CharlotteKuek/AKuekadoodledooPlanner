@@ -406,16 +406,16 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .menu button{display:flex;width:100%;text-align:left;padding:8px 11px;border-radius:8px;font-size:13.5px;font-weight:600}
 .menu button:hover{background:var(--line)}
 #viewerbar{background:var(--brown);color:#fff;font-size:13px;padding:9px 16px;text-align:center}
-#codegate{display:flex;align-items:center;justify-content:center;min-height:80vh;padding:20px}
+#codegate{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;overflow:auto}
 .cg-card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);padding:32px 28px;max-width:400px;width:100%;text-align:center}
 .cg-logo img{width:54px;height:54px;object-fit:contain;margin-bottom:8px}
 .cg-card h2{font-size:22px;margin:4px 0 8px}
 .cg-card p{color:var(--ink-soft);font-size:14px;line-height:1.5;margin:0 0 16px}
 .cg-card input{width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:11px;font-size:15px;font-family:inherit;text-align:center;margin-bottom:12px;background:var(--field);color:var(--ink)}
 .cg-card input:focus{outline:none;border-color:var(--accent)}
-.cg-primary{width:100%;padding:12px;border-radius:12px;background:var(--accent);color:#fff;font-weight:800;font-size:15px;cursor:pointer;border:none}
+.cg-primary{width:100%;padding:12px;border-radius:12px;background:var(--accent);color:#fff;font-weight:800;font-size:15px;cursor:pointer;border:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .cg-or{color:var(--ink-soft);font-size:12px;margin:14px 0;position:relative}
-.cg-ghost{width:100%;padding:11px;border-radius:12px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:none}
+.cg-ghost{width:100%;padding:11px;border-radius:12px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .cg-note{margin-top:14px !important;font-size:13px}
 #viewertabs{display:flex;gap:6px;flex-wrap:wrap;padding:14px 20px 0;max-width:1060px;margin:0 auto}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
@@ -1043,6 +1043,24 @@ async function pushSharedEdits(){
 }
 async function load(){
   initSupa();
+  /* ---- direct code link: ?code=... loads that planner and links this device (button-free) ---- */
+  const cm=location.href.match(/[?&#]code=([^&#]+)/);
+  if(cm){
+    const code=decodeURIComponent(cm[1]);
+    setPlannerCode(code);
+    let cloud=null;
+    try{cloud=await cloudLoadPlanner()}catch(e){}
+    if(cloud){try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}}
+    /* strip the code from the URL so it isn't left visible, then load normally */
+    try{history.replaceState(null,"",location.pathname)}catch(e){}
+    if(cloud){S=migrateAny(cloud)}else{S=defaultState()}
+    if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
+    fixActive();applyTheme();renderAll();markSaving("saved");
+    try{document.execCommand("styleWithCSS",false,true)}catch(e){}
+    await loadHistory();
+    if(!cloud)saveNow();
+    return;
+  }
   /* ---- view-only share link: ?view=<id> opens a live read-only viewer ---- */
   const vm=location.href.match(/[?&#]view=([A-Za-z0-9_]+)/);
   if(vm){
@@ -1092,7 +1110,6 @@ async function load(){
 function showCodeGate(){
   document.getElementById("topbar").style.display="none";
   document.getElementById("banner").style.display="none";
-  const root=document.getElementById("page");
   const g=document.createElement("div");g.id="codegate";
   g.innerHTML=`
     <div class="cg-card">
@@ -1100,12 +1117,12 @@ function showCodeGate(){
       <h2>Welcome to your planner</h2>
       <p>If you already have a planner, enter your <b>planner code</b> to load it here and keep this device in sync.</p>
       <input id="cg-code" placeholder="e.g. sunny-otter-4821" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text">
-      <button class="cg-primary" id="cg-load" type="button">Load my planner</button>
+      <button class="cg-primary" id="cg-load" type="button" onclick="window.gateLoad()">Load my planner</button>
       <div class="cg-or">or</div>
-      <button class="cg-ghost" id="cg-new" type="button">Start a brand-new planner</button>
+      <button class="cg-ghost" id="cg-new" type="button" onclick="window.gateNew()">Start a brand-new planner</button>
       <p class="cg-note" id="cg-msg"></p>
     </div>`;
-  root.innerHTML="";root.appendChild(g);
+  document.body.appendChild(g);
   applyTheme();
   const msg=g.querySelector("#cg-msg");
   const loadBtn=g.querySelector("#cg-load");
@@ -1119,13 +1136,13 @@ function showCodeGate(){
     busy=true;loadBtn.textContent="Loading…";msg.textContent="";
     setPlannerCode(code);
     let cloud=null;
-    try{cloud=await cloudLoadPlanner()}catch(e){}
+    try{cloud=await Promise.race([cloudLoadPlanner(),new Promise(r=>setTimeout(()=>r(null),8000))])}catch(e){}
     if(cloud){
       try{await store.set(KEY,JSON.stringify(cloud))}catch(e){}
       finishLoadFrom(cloud);
     }else{
       busy=false;loadBtn.textContent="Load my planner";
-      msg.innerHTML="No planner found with that code. Double-check it, or start a new one.";
+      msg.innerHTML="Couldn't reach your planner — check the code, or the connection may be busy. Try again in a moment.";
     }
   };
   const doNew=async(ev)=>{
@@ -1139,11 +1156,11 @@ function showCodeGate(){
     try{await store.set(KEY,JSON.stringify(S))}catch(e){}
     finishLoadFrom(null,code);
   };
-  /* bind for both mouse and touch so it works on iPhone Safari */
+  window.gateLoad=doLoad;
+  window.gateNew=doNew;
+  /* also bind directly as a backup */
   loadBtn.addEventListener("click",doLoad);
-  loadBtn.addEventListener("touchend",doLoad);
   newBtn.addEventListener("click",doNew);
-  newBtn.addEventListener("touchend",doNew);
   /* pressing Enter in the code box also loads */
   g.querySelector("#cg-code").addEventListener("keydown",e=>{if(e.key==="Enter")doLoad(e)});
 }
