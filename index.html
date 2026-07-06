@@ -314,10 +314,11 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 
 /* ---------- items ---------- */
 .item{display:flex;align-items:flex-start;gap:5px;padding:2.5px 0;position:relative}
-.item .itemgrip{width:0;overflow:hidden;flex-shrink:0;height:20px;margin-top:2px;padding:0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);cursor:grab;touch-action:none;opacity:0;transition:opacity .12s,width .12s;border-radius:5px}
-.item:hover .itemgrip{opacity:.45;width:15px}
+.item .itemgrip{position:absolute;left:-16px;top:2px;width:14px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);cursor:grab;touch-action:none;opacity:0;transition:opacity .1s;border-radius:5px}
+.item:hover .itemgrip{opacity:.45}
 .item .itemgrip:hover{opacity:.9;background:rgba(0,0,0,.06)}
 .item.dragging{opacity:.6;background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:7px}
+.itemlist,.tasks-body{padding-left:18px}
 .item .addbtn{flex-shrink:0;width:18px;height:18px;margin-top:3px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-soft);opacity:0;transition:.12s}
 .item:hover .addbtn{opacity:.55}
 .item .addbtn:hover{opacity:1;background:rgba(0,0,0,.07)}
@@ -2201,9 +2202,10 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&!e.shiftKey){
     e.preventDefault();
     if(empty&&it.kind!=="text"){it.kind="text";it.done=false;pendingFocus=it.id;rerender();saveSoon();return}
-    /* Enter at the very start of a non-empty line: insert a new line ABOVE, keep caret on current */
-    const b=textBeforeCaret();
-    const atStart=b&&b.text==="";
+    /* measure how much text sits BEFORE the caret across the whole line (not just the current text node) */
+    const sel=getSelection();let beforeLen=1;
+    if(sel.rangeCount){const r=sel.getRangeAt(0);if(r.collapsed){try{const pre=document.createRange();pre.selectNodeContents(el);pre.setEnd(r.startContainer,r.startOffset);beforeLen=pre.toString().replace(/\u200B/g,"").length;}catch(_){beforeLen=1}}}
+    const atStart=beforeLen===0;
     if(atStart&&!empty){
       const nk=it.kind==="header"?"text":it.kind;
       const ni=newItem(nk);ni.indent=it.indent;home.arr.splice(home.idx,0,ni);
