@@ -432,6 +432,12 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
+.version-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;margin-top:8px}
+.version-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--field)}
+.version-row .v-when{display:flex;flex-direction:column;gap:1px;font-size:13.5px}
+.version-row .v-kind{font-size:11px;color:var(--ink-soft)}
+.version-row .v-restore{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border-radius:8px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:12.5px}
+.version-row .v-restore:hover{background:var(--accent);color:#fff}
 .item.item-sel{background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:7px}
 .ideas-notepad{min-height:60vh}
 #delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:8px 10px 8px 16px;display:none;align-items:center;gap:10px;font-size:13.5px;font-weight:700}
@@ -560,7 +566,7 @@ chevD:'<polyline points="6 9 12 15 18 9"/>',
 back:'<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
 trash:'<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/>',
 link:'<path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/><line x1="8" y1="12" x2="16" y2="12"/>',
-gear:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2.6" fill="var(--bg)"/><circle cx="15" cy="17" r="2.6" fill="var(--bg)"/>',
+gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 down:'<line x1="12" y1="4" x2="12" y2="15"/><polyline points="6 10 12 16 18 10"/><line x1="4" y1="20" x2="20" y2="20"/>',
 up:'<line x1="12" y1="16" x2="12" y2="5"/><polyline points="6 10 12 4 18 10"/><line x1="4" y1="20" x2="20" y2="20"/>',
 bulb:'<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1.2 2.1h4.6c.2-.9.6-1.6 1.2-2.1A6 6 0 0 0 12 3z"/>',
@@ -1004,6 +1010,45 @@ const HKEY="planner-history-v1";
 let history=[], histIdx=-1, histTimer=null, restoring=false;
 const TWO_DAYS=1000*60*60*24*2;
 function snapNow(){return{t:Date.now(),snap:JSON.stringify(S)}}
+/* ================= version history (restore points) ================= */
+function snapClean(){const c=JSON.parse(JSON.stringify(S));delete c.versions;return c;}
+function saveVersion(kind){
+  if(!S.versions)S.versions=[];
+  const snap=JSON.stringify(snapClean());
+  if(S.versions.length&&S.versions[0].snap===snap)return;
+  S.versions.unshift({t:Date.now(),kind:kind||"auto",snap});
+  if(S.versions.length>25)S.versions.length=25;
+}
+function maybeAutoVersion(){
+  if(!S)return;if(!S.versions)S.versions=[];
+  const last=S.versions[0];
+  if(!last||Date.now()-last.t>20*60*1000)saveVersion("auto");
+}
+function renderVersionList(host){
+  if(!host)return;
+  const vs=S.versions||[];
+  if(!vs.length){host.innerHTML='<p class="note-small" style="opacity:.7">No restore points yet — they will appear here as you use the app.</p>';return}
+  host.innerHTML="";
+  vs.forEach((v,i)=>{
+    const when=new Date(v.t).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+    const row=document.createElement("div");row.className="version-row";
+    row.innerHTML=`<div class="v-when"><b>${when}</b><span class="v-kind">${v.kind==="manual"?"saved by you":v.kind==="before-restore"?"before a restore":"auto"}</span></div>
+      <button class="v-restore" data-ver="${i}">${icon("refresh",13)} restore</button>`;
+    row.querySelector(".v-restore").onclick=()=>restoreVersion(i);
+    host.appendChild(row);
+  });
+}
+function restoreVersion(i){
+  const vs=S.versions||[];const v=vs[i];if(!v)return;
+  if(!confirm("Restore your planner to "+new Date(v.t).toLocaleString()+"?\n\nYour current version is saved as a restore point first, so you can undo this."))return;
+  saveVersion("before-restore");
+  const keepVersions=S.versions;
+  const restored=JSON.parse(v.snap);restored.versions=keepVersions;
+  S=migrateAny(restored);
+  fixActive();applyTheme();renderAll();saveNow();
+  closeModal();
+  alert("Restored! If this wasn't what you wanted, open Settings again and restore the 'before a restore' point.");
+}
 function pruneHistory(){
   const cutoff=Date.now()-TWO_DAYS;
   /* keep entries within 2 days, but always keep at least the last 20 so short sessions still undo */
@@ -1061,6 +1106,7 @@ function saveTyping(){if(viewer&&!viewerCanEdit)return;markSaving("editing");cle
 function flushTypingHistory(){if(typingPending){typingPending=false;clearTimeout(histTimer);pushHistory()}}
 async function saveNow(){
   if(viewer){try{await pushSharedEdits()}catch(e){}markSaving("saved");return}
+  if(!restoring)maybeAutoVersion();
   markSaving("saving");
   /* local save */
   try{await store.set(KEY,JSON.stringify(S))}catch(e){}
@@ -1565,12 +1611,12 @@ function renderGrid(sec){
   const off=gridWeekOffset(sec.id);
   sec.cells.forEach((c,ci)=>{
     byId[c.id]=c;
-    if(c.height>maxCellPx())c.height=maxCellPx();
+    if(c.height<60)c.height=60;
     const dateStr=dateForDay(off,ci);
     const dateTag=dateStr?`<span class="cell-date">${dateStr}</span>`:"";
     const cell=document.createElement("div");cell.className="cell";cell.dataset.cell=c.id;cell.style.background=c.color;cell.style.setProperty("--cell-accent",darkModeColor(c.color));
     cell.innerHTML=`<div class="cell-top"><div class="cell-name" contenteditable data-sync="cellname:${c.id}" data-ph="Name">${escHtml(c.name)}</div>${dateTag}<button class="cell-clear" data-clearcell="${c.id}" title="clear this day">${icon("eraser",12)}</button><button class="colordot" data-swatch="${c.id}" style="background:${c.color}" title="cell colour"></button></div>`;
-    const list=document.createElement("div");list.className="itemlist";list.style.height=c.height+"px";list.style.maxHeight=maxCellPx()+"px";list.dataset.list=c.id;
+    const list=document.createElement("div");list.className="itemlist";list.style.height=c.height+"px";list.dataset.list=c.id;
     renderItems(c.items,list);
     cell.appendChild(list);
     const rs=document.createElement("div");rs.className="cell-resize";rs.dataset.resize=c.id;rs.title="drag to expand, double-tap to reset";
@@ -2314,7 +2360,7 @@ document.addEventListener("pointerdown",e=>{
   lastTap=now;rz={cell,list,startY:e.clientY,startH:cell.height,handle:h};h.classList.add("on");h.setPointerCapture(e.pointerId);
 });
 document.addEventListener("pointermove",e=>{
-  if(!rz)return;const nh=Math.max(90,Math.min(maxCellPx(),rz.startH+(e.clientY-rz.startY)));
+  if(!rz)return;const nh=Math.max(90,Math.min(2000,rz.startH+(e.clientY-rz.startY)));
   rz.cell.height=nh;rz.list.style.height=nh+"px";
 });
 document.addEventListener("pointerup",()=>{if(rz){rz.handle.classList.remove("on");rz=null;saveSoon()}});
@@ -2616,6 +2662,10 @@ function openSettings(){
       <button class="bigbtn" id="copycode" style="margin:0">${icon("copy",14)} Copy</button>
     </div>
     <button class="ghostbtn" id="setcodebtn" style="margin-top:8px">Log out</button>
+    <h3>Version history</h3>
+    <p class="note-small">Automatic restore points saved as you work. If something goes wrong, jump back to an earlier version. Restoring replaces your current planner — a "before restore" point is saved first, just in case.</p>
+    <div id="versionlist" class="version-list"></div>
+    <button class="ghostbtn" id="savevernow" style="margin-top:8px">${icon("plus",14)} Save a restore point now</button>
     <h3>Back up your data</h3>
     <button class="bigbtn" id="exportbtn">${icon("down",15)} Download backup (.json)</button>
     <label class="ghostbtn" style="cursor:pointer">${icon("up",15)} Restore from backup<input type="file" id="importfile" accept=".json,application/json" hidden></label>
@@ -2695,6 +2745,9 @@ function openSettings(){
       };
     }
   })();
+  /* version history */
+  renderVersionList(m.querySelector("#versionlist"));
+  m.querySelector("#savevernow").onclick=()=>{saveVersion("manual");saveNow();renderVersionList(m.querySelector("#versionlist"));};
   m.querySelector("#exportbtn").onclick=()=>{const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="planner-backup-"+new Date().toISOString().slice(0,10)+".json";a.click()};
   m.querySelector("#importfile").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
     rd.onload=()=>{try{let d=JSON.parse(rd.result);if(!d.mains&&!d.tabs)throw 0;d=migrateAny(d);S=d;fixActive();applyTheme();renderAll();saveNow();closeModal()}catch(_){alert("That file doesn't look like a planner backup.")}};rd.readAsText(f)});
