@@ -470,16 +470,9 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
   #tabtitle{font-size:26px}
   .grid{gap:9px;grid-template-columns:1fr}
   .cell{padding:9px 9px 2px}
-  .cell-name{font-size:12.5px}
   #banner{height:auto;aspect-ratio:1060/150}
   .sec-tools,.igroup-tools,.idea-tools,.tabdel,.draghandle{opacity:.45}
-  /* content fonts three sizes smaller on mobile (15 -> 12) */
-  .item .txt{font-size:12px}
-  .notes-body,.richnote{font-size:12.5px}
-  .richnote .ck-txt{font-size:12.5px}
-  .dl-task{font-size:12px}
-  .idea-body,.idea-title,.tasks-body{font-size:12.5px}
-  .rich-host td{font-size:12px}
+  /* content fonts match laptop on mobile (default 15) */
   /* deadlines: reclaim space for the task name */
   .dl-row{gap:5px;padding:5px 4px}
   .dl-due{width:58px;padding:4px 3px;font-size:10.5px;margin-left:auto}
@@ -1039,8 +1032,12 @@ function doUndo(){if(histIdx<=0)return;histIdx--;applyHistory()}
 function doRedo(){if(histIdx>=history.length-1)return;histIdx++;applyHistory()}
 function applyHistory(){
   restoring=true;
+  const scrollY=window.scrollY;const scrollX=window.scrollX;
   S=JSON.parse(history[histIdx].snap);
   fixActive();applyTheme();renderAll();
+  /* keep the page where it was so undo doesn't jump you back to the top */
+  window.scrollTo(scrollX,scrollY);
+  requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));
   store.set(KEY,JSON.stringify(S)).catch(()=>{});
   store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
   if(S.share.on)publishShared().catch(()=>{});
@@ -1488,6 +1485,36 @@ document.addEventListener("pointermove",e=>{
   if(a>-1&&b>-1&&a!==b){itemDragSel=true;clearItemSel();const[lo,hi]=[Math.min(a,b),Math.max(a,b)];for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");updateDelSelBar()}
 });
 document.addEventListener("pointerup",()=>{if(itemDragSel){itemDragSel=false;updateDelSelBar()}});
+/* ---- mobile: long-press an item to enter multi-select, then tap items to toggle ---- */
+let selectMode=false,lpTimer=null,lpRow=null;
+document.addEventListener("pointerdown",e=>{
+  if(viewer)return;
+  const row=e.target.closest?e.target.closest(".item"):null;
+  if(!row)return;
+  if(e.target.closest(".itemgrip")||e.target.closest(".box")||e.target.closest(".addbtn")||e.target.closest(".expand"))return;
+  lpRow=row;
+  clearTimeout(lpTimer);
+  lpTimer=setTimeout(()=>{
+    selectMode=true;
+    if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    row.classList.add("item-sel");
+    if(navigator.vibrate)navigator.vibrate(15);
+    updateDelSelBar();
+  },420);
+});
+document.addEventListener("pointermove",()=>{clearTimeout(lpTimer)});
+document.addEventListener("pointerup",()=>{clearTimeout(lpTimer)});
+/* in select mode, a tap toggles that item's selection instead of editing it */
+document.addEventListener("click",e=>{
+  if(!selectMode)return;
+  const row=e.target.closest?e.target.closest(".item"):null;
+  if(row&&!e.target.closest("#delselbar")){
+    e.preventDefault();e.stopPropagation();
+    row.classList.toggle("item-sel");
+    if(!selectedItemRows().length){selectMode=false;hideDelSelBar();}
+    else updateDelSelBar();
+  }
+},true);
 /* delete all selected items with Backspace/Delete when not typing */
 document.addEventListener("keydown",e=>{
   if(viewer)return;
@@ -1511,18 +1538,19 @@ function deleteItemsByIds(ids){
     });
     if(sub.project)sub.project.detailSections.forEach(sec=>{if(sec.type==="tasks")removeFrom(sec.items);if(sec.type==="grid")sec.cells.forEach(c=>removeFrom(c.items))});
   }));
-  clearItemSel();hideDelSelBar();renderPage();saveSoon();
+  clearItemSel();selectMode=false;hideDelSelBar();renderPage();saveSoon();
 }
 /* small floating "delete N" bar when multiple items are selected */
 let delSelBar=null;
 function updateDelSelBar(){
   const sel=selectedItemRows();
-  if(sel.length<2){hideDelSelBar();return}
+  const minShow=selectMode?1:2;
+  if(sel.length<minShow){hideDelSelBar();return}
   if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
-  delSelBar.innerHTML=`${sel.length} selected <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">cancel</button>`;
+  delSelBar.innerHTML=`${sel.length} selected <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">done</button>`;
   delSelBar.style.display="flex";
-  delSelBar.querySelector("#delselbtn").onclick=()=>deleteItemsByIds(sel.map(r=>r.dataset.item));
-  delSelBar.querySelector("#delselx").onclick=()=>{clearItemSel();hideDelSelBar()};
+  delSelBar.querySelector("#delselbtn").onclick=()=>{selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))};
+  delSelBar.querySelector("#delselx").onclick=()=>{selectMode=false;clearItemSel();hideDelSelBar()};
 }
 function hideDelSelBar(){if(delSelBar)delSelBar.style.display="none"}
 function clearSection(sec){
