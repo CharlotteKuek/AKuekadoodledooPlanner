@@ -314,6 +314,10 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 
 /* ---------- items ---------- */
 .item{display:flex;align-items:flex-start;gap:5px;padding:2.5px 0;position:relative}
+.item .itemgrip{width:0;overflow:hidden;flex-shrink:0;height:20px;margin-top:2px;padding:0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);cursor:grab;touch-action:none;opacity:0;transition:opacity .12s,width .12s;border-radius:5px}
+.item:hover .itemgrip{opacity:.45;width:15px}
+.item .itemgrip:hover{opacity:.9;background:rgba(0,0,0,.06)}
+.item.dragging{opacity:.6;background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:7px}
 .item .addbtn{flex-shrink:0;width:18px;height:18px;margin-top:3px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-soft);opacity:0;transition:.12s}
 .item:hover .addbtn{opacity:.55}
 .item .addbtn:hover{opacity:1;background:rgba(0,0,0,.07)}
@@ -427,7 +431,12 @@ img.img-selected{outline:3px solid var(--accent);outline-offset:2px}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
+.item.item-sel{background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:7px}
 .ideas-notepad{min-height:60vh}
+#delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:8px 10px 8px 16px;display:none;align-items:center;gap:10px;font-size:13.5px;font-weight:700}
+#delselbar button{padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;display:inline-flex;align-items:center;gap:5px}
+#delselbar #delselbtn{background:#c0392b;color:#fff}
+#delselbar #delselx{background:var(--line);color:var(--ink)}
 .vtab .ve{font-size:15px}
 #ideas-line-btn{position:fixed;z-index:55;width:26px;height:26px;border-radius:7px;display:none;align-items:center;justify-content:center;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.08);cursor:pointer;opacity:.85}
 #ideas-line-btn:hover{opacity:1;color:var(--accent)}
@@ -1427,14 +1436,94 @@ function renderItems(items,container){
     const row=document.createElement("div");
     row.className="item k-"+it.kind+(it.done&&it.kind==="todo"?" done":"")+(hasNote?" has-note":"");
     row.dataset.item=it.id;row.dataset.indent=it.indent||0;
+    row.dataset.dragrow="item";
+    const grip=`<span class="draghandle itemgrip" data-draghandle title="drag to reorder">${icon("grip",13)}</span>`;
     const add=`<button class="addbtn" data-linemenu="${it.id}" title="add note or change line">${icon("plus",13)}</button>`;
     const marker=it.kind==="todo"?`<span class="box" data-tick="${it.id}">${it.done?icon("check",11):""}</span>`:it.kind==="bullet"?`<span class="blt">\u2022</span>`:"";
     const ph=it.kind==="todo"?"To-do":it.kind==="bullet"?"bullet point":it.kind==="header"?"Header":"type here";
     const exp=`<button class="expand" data-expand="${it.id}" title="open elaboration">${icon("note",13)}</button>`;
-    row.innerHTML=add+marker+`<div class="txt rich-host" contenteditable data-sync="item:${it.id}" data-ph="${ph}">${it.html||""}</div>`+exp;
+    row.innerHTML=grip+add+marker+`<div class="txt rich-host" contenteditable data-sync="item:${it.id}" data-ph="${ph}">${it.html||""}</div>`+exp;
     container.appendChild(row);
   });
 }
+/* ---- multi-select items to delete several at once ---- */
+let itemSelAnchor=null;
+function clearItemSel(){document.querySelectorAll(".item.item-sel").forEach(r=>r.classList.remove("item-sel"))}
+function selectedItemRows(){return [...document.querySelectorAll(".item.item-sel")]}
+document.addEventListener("mousedown",e=>{
+  if(viewer)return;
+  const row=e.target.closest?e.target.closest(".item"):null;
+  /* shift-click extends a selection from the anchor to the clicked row */
+  if(row&&e.shiftKey&&itemSelAnchor){
+    e.preventDefault();
+    const rows=[...row.parentElement.children].filter(x=>x.classList.contains("item"));
+    const a=rows.indexOf(document.querySelector(`.item[data-item="${itemSelAnchor}"]`));
+    const b=rows.indexOf(row);
+    if(a>-1&&b>-1){clearItemSel();const[lo,hi]=[Math.min(a,b),Math.max(a,b)];for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");updateDelSelBar()}
+    return;
+  }
+  if(row){itemSelAnchor=row.dataset.item;clearItemSel();hideDelSelBar();}
+  else if(!e.target.closest("#delselbar")){clearItemSel();hideDelSelBar();}
+});
+/* drag across the left margin (marker/checkbox area) to select a range */
+let itemDragSel=false;
+document.addEventListener("pointerdown",e=>{
+  if(viewer)return;
+  const marker=e.target.closest?e.target.closest(".item .box, .item .blt, .item .addbtn"):null;
+  if(marker&&e.target.closest(".box")){return;} /* let checkbox tick work */
+});
+document.addEventListener("pointermove",e=>{
+  if(viewer)return;
+  if(drag)return; /* a reorder drag is in progress */
+  if(e.buttons!==1)return;
+  const row=e.target.closest?e.target.closest(".item"):null;
+  if(!row)return;
+  /* only start drag-select if the drag began on a marker/empty area, not inside the text or grip */
+  if(e.target.closest(".txt")||e.target.closest(".itemgrip")||e.target.closest(".addbtn"))return;
+  if(!itemSelAnchor)return;
+  const rows=[...row.parentElement.children].filter(x=>x.classList.contains("item"));
+  const a=rows.indexOf(document.querySelector(`.item[data-item="${itemSelAnchor}"]`));
+  const b=rows.indexOf(row);
+  if(a>-1&&b>-1&&a!==b){itemDragSel=true;clearItemSel();const[lo,hi]=[Math.min(a,b),Math.max(a,b)];for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");updateDelSelBar()}
+});
+document.addEventListener("pointerup",()=>{if(itemDragSel){itemDragSel=false;updateDelSelBar()}});
+/* delete all selected items with Backspace/Delete when not typing */
+document.addEventListener("keydown",e=>{
+  if(viewer)return;
+  const sel=selectedItemRows();
+  if(sel.length>1&&(e.key==="Backspace"||e.key==="Delete")){
+    const ae=document.activeElement;
+    /* only when focus isn't in an editable text field, or selection spans multiple lines */
+    if(ae&&ae.isContentEditable&&sel.length<=1)return;
+    e.preventDefault();
+    const ids=sel.map(r=>r.dataset.item);
+    deleteItemsByIds(ids);
+  }
+});
+function deleteItemsByIds(ids){
+  /* find and remove these items from whichever list they belong to */
+  const removeFrom=(arr)=>{for(let i=arr.length-1;i>=0;i--){if(ids.includes(arr[i].id))arr.splice(i,1)}};
+  S.mains.forEach(m=>m.subs.forEach(sub=>{
+    sub.sections.forEach(sec=>{
+      if(sec.type==="tasks")removeFrom(sec.items);
+      if(sec.type==="grid")sec.cells.forEach(c=>removeFrom(c.items));
+    });
+    if(sub.project)sub.project.detailSections.forEach(sec=>{if(sec.type==="tasks")removeFrom(sec.items);if(sec.type==="grid")sec.cells.forEach(c=>removeFrom(c.items))});
+  }));
+  clearItemSel();hideDelSelBar();renderPage();saveSoon();
+}
+/* small floating "delete N" bar when multiple items are selected */
+let delSelBar=null;
+function updateDelSelBar(){
+  const sel=selectedItemRows();
+  if(sel.length<2){hideDelSelBar();return}
+  if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
+  delSelBar.innerHTML=`${sel.length} selected <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">cancel</button>`;
+  delSelBar.style.display="flex";
+  delSelBar.querySelector("#delselbtn").onclick=()=>deleteItemsByIds(sel.map(r=>r.dataset.item));
+  delSelBar.querySelector("#delselx").onclick=()=>{clearItemSel();hideDelSelBar()};
+}
+function hideDelSelBar(){if(delSelBar)delSelBar.style.display="none"}
 function clearSection(sec){
   if(!sec)return;
   if(sec.type==="grid"){sec.cells.forEach(c=>c.items=[newItem("todo")])}
@@ -1984,6 +2073,22 @@ document.addEventListener("keydown",e=>{
     renderAll();saveSoon();
   }
 });
+function findItemArray(listId){
+  if(!listId)return null;
+  let found=null;
+  const scan=(sub)=>{
+    sub.sections.forEach(sec=>{
+      if(sec.type==="tasks"&&sec.id===listId)found=sec.items;
+      if(sec.type==="grid")sec.cells.forEach(c=>{if(c.id===listId)found=c.items});
+    });
+    if(sub.project)sub.project.detailSections.forEach(sec=>{
+      if(sec.type==="tasks"&&sec.id===listId)found=sec.items;
+      if(sec.type==="grid")sec.cells.forEach(c=>{if(c.id===listId)found=c.items});
+    });
+  };
+  S.mains.forEach(m=>m.subs.forEach(scan));
+  return found;
+}
 /* ================= drag reorder ================= */
 let drag=null;
 document.addEventListener("pointerdown",e=>{
@@ -2014,6 +2119,12 @@ document.addEventListener("pointerup",()=>{
     else if(drag.kind==="group"){S.ideas.groups=order.map(el=>S.ideas.groups.find(g=>g.id===el.dataset.group))}
     else if(drag.kind==="idea"){const gid=drag.container.dataset.group;const gr=S.ideas.groups.find(g=>g.id===gid);gr.items=order.map(el=>gr.items.find(i=>i.id===el.dataset.idea))}
     else if(drag.kind==="dlrow"){const sid=drag.container.dataset.dllist;const sec=byId[sid];if(sec){sec.rows=order.map(el=>sec.rows.find(r=>r.id===el.dataset.dlrow));sec.sort="manual"}}
+    else if(drag.kind==="item"){
+      /* find which array these items live in via the container's data-list id */
+      const listId=drag.container.dataset.list;
+      const arr=findItemArray(listId);
+      if(arr){const nu=order.map(el=>arr.find(i=>i.id===el.dataset.item)).filter(Boolean);arr.length=0;nu.forEach(i=>arr.push(i));}
+    }
     renderPage();saveSoon();
   }
   drag=null;
