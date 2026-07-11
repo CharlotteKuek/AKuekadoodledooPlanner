@@ -451,10 +451,13 @@ body.resizing-cell *{touch-action:none}
 .item.item-sel{background:color-mix(in srgb,var(--accent) 32%,transparent);border-radius:7px;box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
 .item.item-sel .txt{caret-color:transparent}
 .ideas-notepad{min-height:60vh}
-#delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:8px 10px 8px 16px;display:none;align-items:center;gap:10px;font-size:13.5px;font-weight:700}
-#delselbar button{padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;display:inline-flex;align-items:center;gap:5px}
-#delselbar #delselbtn{background:#c0392b;color:#fff}
-#delselbar #delselx{background:var(--line);color:var(--ink)}
+#delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:7px 8px 7px 14px;display:none;align-items:center;gap:6px;font-size:13.5px;font-weight:700}
+#delselbar .delsel-count{margin-right:4px;white-space:nowrap}
+#delselbar button{padding:7px 9px;border-radius:8px;font-weight:700;font-size:13px;display:inline-flex;align-items:center;gap:5px;color:var(--ink);background:var(--brown-soft)}
+#delselbar button:hover{background:var(--line)}
+#delselbar #delselbtn.danger{background:transparent;color:#c0392b}
+#delselbar #delselbtn.danger:hover{background:#c0392b;color:#fff}
+#delselbar #delselx{background:transparent;color:var(--ink-soft);font-weight:600}
 .vtab .ve{font-size:15px}
 #ideas-line-btn{position:fixed;z-index:55;width:26px;height:26px;border-radius:7px;display:none;align-items:center;justify-content:center;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.08);cursor:pointer;opacity:.85}
 #ideas-line-btn:hover{opacity:1;color:var(--accent)}
@@ -592,6 +595,8 @@ search:'<circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"
 expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
 refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
 chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+scissors:'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>',
+clipboard:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
 copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M6 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v2"/>',
 repeat:'<polyline points="17 2 21 6 17 10"/><path d="M3 12V10a4 4 0 0 1 4-4h14"/><polyline points="7 22 3 18 7 14"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/>',
 eraser:'<path d="M4 15l7-7 6 6-4 4H8z"/><line x1="8" y1="18" x2="20" y2="18"/><line x1="11" y1="8" x2="17" y2="14"/>'
@@ -1613,39 +1618,80 @@ document.addEventListener("click",e=>{
   if(itemJustDragged){e.stopPropagation();e.preventDefault();}
 },true);
 /* ---- mobile: long-press an item to enter multi-select, then tap items to toggle ---- */
-let selectMode=false,lpTimer=null,lpRow=null;
+let selectMode=false,lpTimer=null,lpRow=null,lpX=0,lpY=0;
 document.addEventListener("pointerdown",e=>{
   if(viewer)return;
   const row=e.target.closest?e.target.closest(".item"):null;
-  if(!row)return;
+  if(!row){return}
   if(e.target.closest(".itemgrip")||e.target.closest(".box")||e.target.closest(".addbtn")||e.target.closest(".expand"))return;
-  lpRow=row;
+  lpRow=row;lpX=e.clientX;lpY=e.clientY;
   clearTimeout(lpTimer);
   lpTimer=setTimeout(()=>{
     selectMode=true;
     if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
     row.classList.add("item-sel");
-    if(navigator.vibrate)navigator.vibrate(15);
+    itemSelAnchor=row.dataset.item;
+    if(navigator.vibrate)navigator.vibrate(18);
     updateDelSelBar();
-  },420);
+  },400);
 });
-document.addEventListener("pointermove",()=>{clearTimeout(lpTimer)});
+/* cancel the long-press only if the finger actually moves (a small wobble is fine) */
+document.addEventListener("pointermove",e=>{
+  if(lpTimer&&(Math.abs(e.clientX-lpX)>10||Math.abs(e.clientY-lpY)>10))clearTimeout(lpTimer);
+});
 document.addEventListener("pointerup",()=>{clearTimeout(lpTimer)});
-/* in select mode, a tap toggles that item's selection instead of editing it */
+document.addEventListener("pointercancel",()=>{clearTimeout(lpTimer)});
+/* in select mode: tap an item to toggle it; tap anywhere else to exit & deselect */
 document.addEventListener("click",e=>{
   if(!selectMode)return;
+  if(e.target.closest("#delselbar"))return; /* let the bar's own buttons work */
   const row=e.target.closest?e.target.closest(".item"):null;
-  if(row&&!e.target.closest("#delselbar")){
-    e.preventDefault();e.stopPropagation();
+  e.preventDefault();e.stopPropagation();
+  if(row){
     row.classList.toggle("item-sel");
     if(!selectedItemRows().length){selectMode=false;hideDelSelBar();}
     else updateDelSelBar();
+  }else{
+    /* tapped outside any item → exit select mode and clear */
+    selectMode=false;clearItemSel();hideDelSelBar();
   }
 },true);
-/* delete all selected items with Backspace/Delete when not typing */
+/* internal clipboard for selected checklist items */
+let itemClipboard=[];
+function itemsFromRows(rows){
+  return rows.map(r=>{const it=byId[r.dataset.item];return it?JSON.parse(JSON.stringify(it)):null}).filter(Boolean);
+}
+function copySelectedItems(){
+  const sel=selectedItemRows();if(!sel.length)return false;
+  itemClipboard=itemsFromRows(sel);
+  /* also put plain text on the system clipboard so you can paste elsewhere */
+  try{const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");navigator.clipboard&&navigator.clipboard.writeText(text)}catch(e){}
+  return true;
+}
+function pasteItemsAfter(targetRow){
+  if(!itemClipboard.length)return;
+  /* find the array + index of the target (or the last selected) to paste after */
+  let listId=null,idx=-1;
+  if(targetRow){const c=targetRow.closest(".itemlist,.tasks-body");if(c)listId=c.dataset.list;}
+  if(!listId){const sel=selectedItemRows();if(sel.length){const c=sel[sel.length-1].closest(".itemlist,.tasks-body");if(c){listId=c.dataset.list;targetRow=sel[sel.length-1]}}}
+  if(!listId)return;
+  const arr=findItemArray(listId);if(!arr)return;
+  if(targetRow){idx=arr.findIndex(i=>i.id===targetRow.dataset.item)}
+  const fresh=itemClipboard.map(i=>{const n=JSON.parse(JSON.stringify(i));n.id=uid();return n});
+  if(idx>=0)arr.splice(idx+1,0,...fresh);else arr.push(...fresh);
+  clearItemSel();hideDelSelBar();selectMode=false;renderPage();saveSoon();
+  /* re-highlight the pasted items */
+  setTimeout(()=>{fresh.forEach(f=>{const el=document.querySelector(`.item[data-item="${f.id}"]`);if(el)el.classList.add("item-sel")});updateDelSelBar()},0);
+}
+/* delete / copy / cut / paste for selected items */
 document.addEventListener("keydown",e=>{
   if(viewer)return;
   const sel=selectedItemRows();
+  const mod=e.metaKey||e.ctrlKey;
+  if(sel.length>=1&&mod&&e.key.toLowerCase()==="c"){e.preventDefault();copySelectedItems();return}
+  if(sel.length>=1&&mod&&e.key.toLowerCase()==="x"){e.preventDefault();if(copySelectedItems())deleteItemsByIds(sel.map(r=>r.dataset.item));return}
+  if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(sel.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(sel[sel.length-1]||null);return}
   if(sel.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
     e.preventDefault();e.stopPropagation();
     deleteItemsByIds(sel.map(r=>r.dataset.item));
@@ -1670,12 +1716,21 @@ function updateDelSelBar(){
   const minShow=selectMode?1:2;
   if(sel.length<minShow){hideDelSelBar();return}
   if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
-  delSelBar.innerHTML=`${sel.length} selected <span class="delsel-hint">(or press ⌫)</span> <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">done</button>`;
+  const canPaste=itemClipboard.length>0;
+  delSelBar.innerHTML=`<span class="delsel-count">${sel.length} selected</span>
+    <button id="selcopy" title="copy">${icon("copy",14)}</button>
+    <button id="selcut" title="cut">${icon("scissors",14)}</button>
+    ${canPaste?`<button id="selpaste" title="paste after">${icon("clipboard",14)}</button>`:""}
+    <button id="delselbtn" class="danger" title="delete">${icon("trash",14)}</button>
+    <button id="delselx">done</button>`;
   delSelBar.style.display="flex";
+  delSelBar.querySelector("#selcopy").onclick=()=>{copySelectedItems();flashBar("copied")};
+  delSelBar.querySelector("#selcut").onclick=()=>{if(copySelectedItems()){selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))}};
+  if(canPaste){const pb=delSelBar.querySelector("#selpaste");if(pb)pb.onclick=()=>pasteItemsAfter(sel[sel.length-1]||null)}
   delSelBar.querySelector("#delselbtn").onclick=()=>{selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))};
   delSelBar.querySelector("#delselx").onclick=()=>{selectMode=false;clearItemSel();hideDelSelBar()};
 }
-function hideDelSelBar(){if(delSelBar)delSelBar.style.display="none"}
+function flashBar(msg){if(!delSelBar)return;const c=delSelBar.querySelector(".delsel-count");if(c){const o=c.textContent;c.textContent=msg;setTimeout(()=>{if(c)c.textContent=o},900)}}
 function clearSection(sec){
   if(!sec)return;
   if(sec.type==="grid"){sec.cells.forEach(c=>c.items=[newItem("todo")])}
