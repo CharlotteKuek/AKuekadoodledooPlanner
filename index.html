@@ -442,12 +442,14 @@ body.resizing-cell *{touch-action:none}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
 .version-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;margin-top:8px}
+.delsel-hint{font-weight:500;font-size:11.5px;color:var(--ink-soft);opacity:.75}
 .version-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--field)}
 .version-row .v-when{display:flex;flex-direction:column;gap:1px;font-size:13.5px}
 .version-row .v-kind{font-size:11px;color:var(--ink-soft)}
 .version-row .v-restore{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border-radius:8px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:12.5px}
 .version-row .v-restore:hover{background:var(--accent);color:#fff}
-.item.item-sel{background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:7px}
+.item.item-sel{background:color-mix(in srgb,var(--accent) 32%,transparent);border-radius:7px;box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.item.item-sel .txt{caret-color:transparent}
 .ideas-notepad{min-height:60vh}
 #delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:8px 10px 8px 16px;display:none;align-items:center;gap:10px;font-size:13.5px;font-weight:700}
 #delselbar button{padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;display:inline-flex;align-items:center;gap:5px}
@@ -1019,31 +1021,39 @@ const HKEY="planner-history-v1";
 let history=[], histIdx=-1, histTimer=null, restoring=false;
 const TWO_DAYS=1000*60*60*24*2;
 function snapNow(){return{t:Date.now(),snap:JSON.stringify(S)}}
-/* ================= version history (restore points) ================= */
+/* ================= version history (restore points) =================
+   Stored SEPARATELY from S (own key/row) so they never bloat the main save path. */
+let VERSIONS=[];
+const VKEY="planner-versions";
 function snapClean(){const c=JSON.parse(JSON.stringify(S));delete c.versions;return c;}
 function saveVersion(kind){
-  if(!S.versions)S.versions=[];
   const snap=JSON.stringify(snapClean());
-  if(S.versions.length&&S.versions[0].snap===snap)return;
-  S.versions.unshift({t:Date.now(),kind:kind||"auto",snap});
+  if(VERSIONS.length&&VERSIONS[0].snap===snap)return;
+  VERSIONS.unshift({t:Date.now(),kind:kind||"auto",snap});
   pruneVersions();
+  persistVersions();
 }
 function pruneVersions(){
-  if(!S.versions)return;
-  const cutoff=Date.now()-1000*60*60*24*2; /* 2 days */
-  /* drop anything older than 2 days, but always keep the 5 most recent as a safety floor */
-  S.versions=S.versions.filter((v,i)=>i<5||v.t>=cutoff);
-  if(S.versions.length>25)S.versions.length=25;
+  const cutoff=Date.now()-1000*60*60*24*2;
+  VERSIONS=VERSIONS.filter((v,i)=>i<5||v.t>=cutoff);
+  if(VERSIONS.length>20)VERSIONS.length=20;
+}
+function persistVersions(){
+  try{store.set(VKEY,JSON.stringify(VERSIONS)).catch(()=>{})}catch(e){}
+  if(supa){supa.from("planners").upsert({id:myPlannerId()+"_ver",data:VERSIONS,updated_at:new Date().toISOString()}).then(()=>{}).catch(()=>{})}
+}
+async function loadVersions(){
+  try{const r=await store.get(VKEY);if(r&&r.value){VERSIONS=JSON.parse(r.value);return}}catch(e){}
+  if(supa){try{const {data}=await supa.from("planners").select("data").eq("id",myPlannerId()+"_ver").maybeSingle();if(data&&Array.isArray(data.data))VERSIONS=data.data}catch(e){}}
 }
 function maybeAutoVersion(){
-  if(!S)return;if(!S.versions)S.versions=[];
   pruneVersions();
-  const last=S.versions[0];
+  const last=VERSIONS[0];
   if(!last||Date.now()-last.t>20*60*1000)saveVersion("auto");
 }
 function renderVersionList(host){
   if(!host)return;
-  const vs=S.versions||[];
+  const vs=VERSIONS||[];
   if(!vs.length){host.innerHTML='<p class="note-small" style="opacity:.7">No restore points yet — they will appear here as you use the app.</p>';return}
   host.innerHTML="";
   vs.forEach((v,i)=>{
@@ -1056,12 +1066,10 @@ function renderVersionList(host){
   });
 }
 function restoreVersion(i){
-  const vs=S.versions||[];const v=vs[i];if(!v)return;
+  const v=VERSIONS[i];if(!v)return;
   if(!confirm("Restore your planner to "+new Date(v.t).toLocaleString()+"?\n\nYour current version is saved as a restore point first, so you can undo this."))return;
   saveVersion("before-restore");
-  const keepVersions=S.versions;
-  const restored=JSON.parse(v.snap);restored.versions=keepVersions;
-  S=migrateAny(restored);
+  S=migrateAny(JSON.parse(v.snap));
   fixActive();applyTheme();renderAll();saveNow();
   closeModal();
   alert("Restored! If this wasn't what you wanted, open Settings again and restore the 'before a restore' point.");
@@ -1075,14 +1083,20 @@ function pruneHistory(){
     if(histIdx>history.length-1)histIdx=history.length-1;
   }
 }
+let histSaveTimer=null;
+function persistHistory(){
+  clearTimeout(histSaveTimer);
+  histSaveTimer=setTimeout(()=>{store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{})},2000);
+}
 function pushHistory(){
   if(restoring)return;
+  flushSerialize();
   if(histIdx<history.length-1)history=history.slice(0,histIdx+1); /* drop redo branch */
   const cur=snapNow();
   if(history.length&&history[history.length-1].snap===cur.snap)return;
   history.push(cur);histIdx=history.length-1;
   pruneHistory();
-  store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
+  persistHistory();
   updateUndoButtons();
 }
 function updateUndoButtons(){
@@ -1101,8 +1115,8 @@ function applyHistory(){
   window.scrollTo(scrollX,scrollY);
   requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));
   store.set(KEY,JSON.stringify(S)).catch(()=>{});
-  store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{});
-  if(S.share.on)publishShared().catch(()=>{});
+  persistHistory();
+  clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudSavePlanner().catch(()=>{});if(S.share.on)publishShared().catch(()=>{})},1500);
   updateUndoButtons();markSaving("saved");
   setTimeout(()=>restoring=false,30);
 }
@@ -1121,16 +1135,21 @@ let typingPending=false;
 function saveTyping(){if(viewer&&!viewerCanEdit)return;markSaving("editing");clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,900);
   if(!restoring&&!viewer){typingPending=true;clearTimeout(histTimer);histTimer=setTimeout(()=>{typingPending=false;pushHistory()},600)}}
 function flushTypingHistory(){if(typingPending){typingPending=false;clearTimeout(histTimer);pushHistory()}}
+let cloudTimer=null;
 async function saveNow(){
   if(viewer){try{await pushSharedEdits()}catch(e){}markSaving("saved");return}
+  flushSerialize();
   if(!restoring)maybeAutoVersion();
   markSaving("saving");
-  /* local save */
+  /* local save is fast — do it immediately */
   try{await store.set(KEY,JSON.stringify(S))}catch(e){}
-  /* cloud saves run independently — a failure in one must not block the others */
-  cloudSavePlanner().catch(()=>{});
-  if(S.share.on){publishShared().catch(()=>{});}
   markSaving("saved");
+  /* cloud upload is the slow part — debounce it so rapid edits don't each trigger an upload */
+  clearTimeout(cloudTimer);
+  cloudTimer=setTimeout(()=>{
+    cloudSavePlanner().catch(()=>{});
+    if(S.share.on){publishShared().catch(()=>{});}
+  },1500);
 }
 function sharedPayload(){
   const out={appName:S.shareTitle,updated:new Date().toLocaleString(),mains:[]};
@@ -1195,6 +1214,7 @@ async function load(){
   fixActive();applyTheme();renderAll();markSaving("saved");
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
   await loadHistory();
+  loadVersions();
 }
 /* first-time-on-this-device screen: log in to an existing account, or create a new one */
 function showCodeGate(){
@@ -1382,6 +1402,7 @@ function buildCrumbs(parts){
   return wrap;
 }
 function renderPage(){
+  if(typeof flushSerialize==="function")flushSerialize();
   byId={};
   const sub=activeSub();
   const banner=document.getElementById("banner");
@@ -1534,45 +1555,63 @@ function renderItems(items,container){
 }
 /* ---- multi-select items to delete several at once ---- */
 let itemSelAnchor=null;
+let itemJustDragged=false;
 function clearItemSel(){document.querySelectorAll(".item.item-sel").forEach(r=>r.classList.remove("item-sel"))}
 function selectedItemRows(){return [...document.querySelectorAll(".item.item-sel")]}
+function selectRange(container,anchorId,toRow){
+  const rows=[...container.children].filter(x=>x.classList.contains("item"));
+  const a=rows.indexOf(container.querySelector(`.item[data-item="${anchorId}"]`));
+  const b=rows.indexOf(toRow);
+  if(a<0||b<0)return false;
+  clearItemSel();
+  const[lo,hi]=[Math.min(a,b),Math.max(a,b)];
+  for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");
+  return true;
+}
 document.addEventListener("mousedown",e=>{
   if(viewer)return;
   const row=e.target.closest?e.target.closest(".item"):null;
   /* shift-click extends a selection from the anchor to the clicked row */
   if(row&&e.shiftKey&&itemSelAnchor){
     e.preventDefault();
-    const rows=[...row.parentElement.children].filter(x=>x.classList.contains("item"));
-    const a=rows.indexOf(document.querySelector(`.item[data-item="${itemSelAnchor}"]`));
-    const b=rows.indexOf(row);
-    if(a>-1&&b>-1){clearItemSel();const[lo,hi]=[Math.min(a,b),Math.max(a,b)];for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");updateDelSelBar()}
+    if(selectRange(row.parentElement,itemSelAnchor,row))updateDelSelBar();
     return;
   }
-  if(row){itemSelAnchor=row.dataset.item;clearItemSel();hideDelSelBar();}
+  /* clicking a row sets it as the anchor (but don't clear a fresh drag-selection) */
+  if(row){itemSelAnchor=row.dataset.item;if(!itemJustDragged){clearItemSel();hideDelSelBar();}}
   else if(!e.target.closest("#delselbar")){clearItemSel();hideDelSelBar();}
 });
-/* drag across the left margin (marker/checkbox area) to select a range */
+/* drag across items (on the marker/empty area) to select a range */
 let itemDragSel=false;
-document.addEventListener("pointerdown",e=>{
-  if(viewer)return;
-  const marker=e.target.closest?e.target.closest(".item .box, .item .blt, .item .addbtn"):null;
-  if(marker&&e.target.closest(".box")){return;} /* let checkbox tick work */
-});
 document.addEventListener("pointermove",e=>{
   if(viewer)return;
   if(drag)return; /* a reorder drag is in progress */
   if(e.buttons!==1)return;
   const row=e.target.closest?e.target.closest(".item"):null;
   if(!row)return;
-  /* only start drag-select if the drag began on a marker/empty area, not inside the text or grip */
-  if(e.target.closest(".txt")||e.target.closest(".itemgrip")||e.target.closest(".addbtn"))return;
+  /* don't start a drag-select from the grip or add button */
+  if(e.target.closest(".itemgrip")||e.target.closest(".addbtn"))return;
   if(!itemSelAnchor)return;
-  const rows=[...row.parentElement.children].filter(x=>x.classList.contains("item"));
-  const a=rows.indexOf(document.querySelector(`.item[data-item="${itemSelAnchor}"]`));
-  const b=rows.indexOf(row);
-  if(a>-1&&b>-1&&a!==b){itemDragSel=true;clearItemSel();const[lo,hi]=[Math.min(a,b),Math.max(a,b)];for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");updateDelSelBar()}
+  const container=row.parentElement;
+  const anchorRow=container.querySelector(`.item[data-item="${itemSelAnchor}"]`);
+  if(!anchorRow)return; /* anchor is in a different list */
+  if(row===anchorRow&&!itemDragSel)return;
+  /* we've moved onto a different row → begin/continue a drag selection */
+  e.preventDefault();
+  const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();/* kill native text selection */
+  itemDragSel=true;itemJustDragged=true;
+  if(selectRange(container,itemSelAnchor,row))updateDelSelBar();
 });
-document.addEventListener("pointerup",()=>{if(itemDragSel){itemDragSel=false;updateDelSelBar()}});
+document.addEventListener("pointerup",()=>{
+  if(itemDragSel){itemDragSel=false;updateDelSelBar();
+    /* keep the flag briefly so the follow-up click doesn't clear the selection */
+    setTimeout(()=>{itemJustDragged=false},50);
+  }
+});
+/* stop the click right after a drag-select from clearing it */
+document.addEventListener("click",e=>{
+  if(itemJustDragged){e.stopPropagation();e.preventDefault();}
+},true);
 /* ---- mobile: long-press an item to enter multi-select, then tap items to toggle ---- */
 let selectMode=false,lpTimer=null,lpRow=null;
 document.addEventListener("pointerdown",e=>{
@@ -1607,15 +1646,11 @@ document.addEventListener("click",e=>{
 document.addEventListener("keydown",e=>{
   if(viewer)return;
   const sel=selectedItemRows();
-  if(sel.length>1&&(e.key==="Backspace"||e.key==="Delete")){
-    const ae=document.activeElement;
-    /* only when focus isn't in an editable text field, or selection spans multiple lines */
-    if(ae&&ae.isContentEditable&&sel.length<=1)return;
-    e.preventDefault();
-    const ids=sel.map(r=>r.dataset.item);
-    deleteItemsByIds(ids);
+  if(sel.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
+    e.preventDefault();e.stopPropagation();
+    deleteItemsByIds(sel.map(r=>r.dataset.item));
   }
-});
+},true);
 function deleteItemsByIds(ids){
   /* find and remove these items from whichever list they belong to */
   const removeFrom=(arr)=>{for(let i=arr.length-1;i>=0;i--){if(ids.includes(arr[i].id))arr.splice(i,1)}};
@@ -1635,7 +1670,7 @@ function updateDelSelBar(){
   const minShow=selectMode?1:2;
   if(sel.length<minShow){hideDelSelBar();return}
   if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
-  delSelBar.innerHTML=`${sel.length} selected <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">done</button>`;
+  delSelBar.innerHTML=`${sel.length} selected <span class="delsel-hint">(or press ⌫)</span> <button id="delselbtn">${icon("trash",13)} delete</button> <button id="delselx">done</button>`;
   delSelBar.style.display="flex";
   delSelBar.querySelector("#delselbtn").onclick=()=>{selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))};
   delSelBar.querySelector("#delselx").onclick=()=>{selectMode=false;clearItemSel();hideDelSelBar()};
@@ -1938,17 +1973,18 @@ document.addEventListener("input",e=>{
   const el=e.target.closest?e.target.closest("[data-sync]"):null;
   if(el){
     const[kind,id]=el.dataset.sync.split(":");
-    if(kind==="ideasnotes"){S.ideas.notesHtml=cleanNoteHTML(el);setTimeout(()=>markLinesWithNotes(el),0);saveTyping();return}
+    if(kind==="ideasnotes"){pendingSerialize={kind:"ideasnotes",el};saveTyping();return}
     const o=byId[id];
     if(o){
-      if(kind==="item")o.html=serializeHTML(el);
-      if(kind==="cellname")o.name=el.textContent;
-      if(kind==="ideatitle")o.title=el.textContent;
-      if(kind==="sectitle")o.title=el.textContent;
-      if(kind==="notes")o.html=el.classList.contains("richnote")?cleanNoteHTML(el):serializeHTML(el);
-      if(kind==="groupname")o.name=el.textContent;
-      if(kind==="itemnote")o.note=serializeHTML(el);
-      if(kind==="dltask")o.html=el.innerHTML;
+      /* store lightweight values immediately; defer heavy clone-based serialization to save time */
+      if(kind==="item"){pendingSerialize={kind:"item",el,o}}
+      else if(kind==="cellname")o.name=el.textContent;
+      else if(kind==="ideatitle")o.title=el.textContent;
+      else if(kind==="sectitle")o.title=el.textContent;
+      else if(kind==="notes"){pendingSerialize={kind:"notes",el,o}}
+      else if(kind==="groupname")o.name=el.textContent;
+      else if(kind==="itemnote"){pendingSerialize={kind:"itemnote",el,o}}
+      else if(kind==="dltask")o.html=el.innerHTML;
     }
     saveTyping();
   }
@@ -1958,6 +1994,18 @@ document.addEventListener("input",e=>{
     saveTyping();
   }
 });
+/* flush any deferred serialization right before a save actually happens */
+let pendingSerialize=null;
+function flushSerialize(){
+  if(!pendingSerialize)return;
+  const p=pendingSerialize;pendingSerialize=null;
+  try{
+    if(p.kind==="ideasnotes"){S.ideas.notesHtml=cleanNoteHTML(p.el);markLinesWithNotes(p.el);}
+    else if(p.kind==="item")p.o.html=serializeHTML(p.el);
+    else if(p.kind==="notes")p.o.html=p.el.classList.contains("richnote")?cleanNoteHTML(p.el):serializeHTML(p.el);
+    else if(p.kind==="itemnote")p.o.note=serializeHTML(p.el);
+  }catch(e){}
+}
 function armed(btn,label,fn){
   if(btn.dataset.armed){fn()}
   else{btn.dataset.armed="1";btn.classList.add("armed");const old=btn.innerHTML;btn.innerHTML=label;
@@ -2804,7 +2852,7 @@ function openSettings(){
   })();
   /* version history */
   renderVersionList(m.querySelector("#versionlist"));
-  m.querySelector("#savevernow").onclick=()=>{saveVersion("manual");saveNow();renderVersionList(m.querySelector("#versionlist"));};
+  m.querySelector("#savevernow").onclick=()=>{saveVersion("manual");renderVersionList(m.querySelector("#versionlist"));};
   m.querySelector("#exportbtn").onclick=()=>{const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="planner-backup-"+new Date().toISOString().slice(0,10)+".json";a.click()};
   m.querySelector("#importfile").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
     rd.onload=()=>{try{let d=JSON.parse(rd.result);if(!d.mains&&!d.tabs)throw 0;d=migrateAny(d);S=d;fixActive();applyTheme();renderAll();saveNow();closeModal()}catch(_){alert("That file doesn't look like a planner backup.")}};rd.readAsText(f)});
