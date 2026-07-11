@@ -450,6 +450,8 @@ body.resizing-cell *{touch-action:none}
 .version-row .v-restore:hover{background:var(--accent);color:#fff}
 .item.item-sel{background:color-mix(in srgb,var(--accent) 32%,transparent);border-radius:7px;box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
 .item.item-sel .txt{caret-color:transparent}
+body.selecting-items{overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+body.selecting-items .item,body.selecting-items .itemlist,body.selecting-items .txt{touch-action:none!important;-webkit-user-select:none;user-select:none}
 .ideas-notepad{min-height:60vh}
 #delselbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.16);border-radius:12px;padding:7px 8px 7px 14px;display:none;align-items:center;gap:6px;font-size:13.5px;font-weight:700}
 #delselbar .delsel-count{margin-right:4px;white-space:nowrap}
@@ -1591,6 +1593,8 @@ let itemDragSel=false;
 document.addEventListener("pointermove",e=>{
   if(viewer)return;
   if(drag)return; /* a reorder drag is in progress */
+  if(dragSelecting)return; /* mobile long-press drag handles selection */
+  if(e.pointerType==="touch")return; /* touch uses the long-press flow, not this */
   if(e.buttons!==1)return;
   const row=e.target.closest?e.target.closest(".item"):null;
   if(!row)return;
@@ -1617,35 +1621,57 @@ document.addEventListener("pointerup",()=>{
 document.addEventListener("click",e=>{
   if(itemJustDragged){e.stopPropagation();e.preventDefault();}
 },true);
-/* ---- mobile: long-press an item to enter multi-select, then tap items to toggle ---- */
-let selectMode=false,lpTimer=null,lpRow=null,lpX=0,lpY=0;
+/* ---- mobile: long-press an item, then keep dragging to select a range (no scroll) ---- */
+let selectMode=false,lpTimer=null,lpRow=null,lpX=0,lpY=0,lpPointerId=null,dragSelecting=false;
 document.addEventListener("pointerdown",e=>{
   if(viewer)return;
   const row=e.target.closest?e.target.closest(".item"):null;
   if(!row){return}
   if(e.target.closest(".itemgrip")||e.target.closest(".box")||e.target.closest(".addbtn")||e.target.closest(".expand"))return;
-  lpRow=row;lpX=e.clientX;lpY=e.clientY;
+  lpRow=row;lpX=e.clientX;lpY=e.clientY;lpPointerId=e.pointerId;
   clearTimeout(lpTimer);
   lpTimer=setTimeout(()=>{
-    selectMode=true;
+    selectMode=true;dragSelecting=true;
     if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
     const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
     row.classList.add("item-sel");
     itemSelAnchor=row.dataset.item;
+    /* lock scrolling on the list so the finger-drag selects instead of scrolls */
+    document.body.classList.add("selecting-items");
     if(navigator.vibrate)navigator.vibrate(18);
     updateDelSelBar();
-  },400);
+  },350);
 });
-/* cancel the long-press only if the finger actually moves (a small wobble is fine) */
+/* while dragging after a long-press, extend the selection to whatever item is under the finger */
 document.addEventListener("pointermove",e=>{
+  if(dragSelecting){
+    e.preventDefault();
+    const el=document.elementFromPoint(e.clientX,e.clientY);
+    const row=el&&el.closest?el.closest(".item"):null;
+    if(row&&itemSelAnchor){
+      const container=row.parentElement;
+      if(container.querySelector(`.item[data-item="${itemSelAnchor}"]`)){
+        selectRange(container,itemSelAnchor,row);updateDelSelBar();
+      }
+    }
+    return;
+  }
+  /* not yet in drag-select: cancel the pending long-press if the finger moves away */
   if(lpTimer&&(Math.abs(e.clientX-lpX)>10||Math.abs(e.clientY-lpY)>10))clearTimeout(lpTimer);
+},{passive:false});
+document.addEventListener("pointerup",()=>{
+  clearTimeout(lpTimer);
+  if(dragSelecting){dragSelecting=false;document.body.classList.remove("selecting-items");updateDelSelBar();}
 });
-document.addEventListener("pointerup",()=>{clearTimeout(lpTimer)});
-document.addEventListener("pointercancel",()=>{clearTimeout(lpTimer)});
+document.addEventListener("pointercancel",()=>{
+  clearTimeout(lpTimer);
+  if(dragSelecting){dragSelecting=false;document.body.classList.remove("selecting-items");}
+});
 /* in select mode: tap an item to toggle it; tap anywhere else to exit & deselect */
 document.addEventListener("click",e=>{
   if(!selectMode)return;
   if(e.target.closest("#delselbar"))return; /* let the bar's own buttons work */
+  if(dragSelecting)return; /* the drag just ended; don't treat the release as a toggle */
   const row=e.target.closest?e.target.closest(".item"):null;
   e.preventDefault();e.stopPropagation();
   if(row){
@@ -1653,7 +1679,6 @@ document.addEventListener("click",e=>{
     if(!selectedItemRows().length){selectMode=false;hideDelSelBar();}
     else updateDelSelBar();
   }else{
-    /* tapped outside any item → exit select mode and clear */
     selectMode=false;clearItemSel();hideDelSelBar();
   }
 },true);
