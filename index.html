@@ -1581,9 +1581,7 @@ function selectRange(container,anchorId,toRow){
   const[lo,hi]=[Math.min(a,b),Math.max(a,b)];
   for(let i=lo;i<=hi;i++)selectedIds.add(rows[i].dataset.item);
   applySelClasses();
-  /* take focus out of any text box so Backspace/Delete act on the SELECTION, not the text */
-  const ae=document.activeElement;
-  if(ae&&ae.isContentEditable&&ae.blur)ae.blur();
+  /* clear any native text selection, but DON'T blur (blurring triggers a save+render that wiped the selection) */
   const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
   return true;
 }
@@ -1702,7 +1700,7 @@ function itemsFromRows(rows){
   return rows.map(r=>{const it=byId[r.dataset.item];return it?JSON.parse(JSON.stringify(it)):null}).filter(Boolean);
 }
 function copySelectedItems(){
-  const ids=[...selectedIds];if(!ids.length)return false;
+  const ids=currentSelIds();if(!ids.length)return false;
   itemClipboard=ids.map(id=>byId[id]).filter(Boolean).map(i=>JSON.parse(JSON.stringify(i)));
   /* also put plain text on the system clipboard so you can paste elsewhere */
   try{const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");navigator.clipboard&&navigator.clipboard.writeText(text)}catch(e){}
@@ -1724,16 +1722,22 @@ function pasteItemsAfter(targetRow){
   /* re-highlight the pasted items */
   setTimeout(()=>{selectedIds.clear();fresh.forEach(f=>selectedIds.add(f.id));applySelClasses();updateDelSelBar()},0);
 }
+/* the current selection, read from memory OR (as a fallback) from what's highlighted on screen */
+function currentSelIds(){
+  if(selectedIds.size)return [...selectedIds];
+  const rows=[...document.querySelectorAll(".item.item-sel")];
+  return rows.map(r=>r.dataset.item).filter(Boolean);
+}
 /* delete / copy / cut / paste for selected items */
 document.addEventListener("keydown",e=>{
   if(viewer)return;
-  const ids=[...selectedIds];
+  const ids=currentSelIds();
   const mod=e.metaKey||e.ctrlKey;
   if(ids.length>=1&&mod&&e.key.toLowerCase()==="c"){e.preventDefault();copySelectedItems();return}
   if(ids.length>=1&&mod&&e.key.toLowerCase()==="x"){e.preventDefault();if(copySelectedItems())deleteItemsByIds(ids);return}
   if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(ids.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(null);return}
   if(ids.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
-    e.preventDefault();e.stopPropagation();
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
     deleteItemsByIds(ids);
   }
 },true);
