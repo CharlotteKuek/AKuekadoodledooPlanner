@@ -1480,6 +1480,7 @@ function renderPage(){
   sub.sections.forEach(sec=>{byId[sec.id]=sec;root.appendChild(renderSection(sec))});
   restoreFocus();
   adjustColorsForTheme(root);
+  if(typeof applySelClasses==="function")applySelClasses();
 }
 function renderSection(sec){
   const w=document.createElement("div");w.className="section";w.dataset.sec=sec.id;w.dataset.dragrow="sec";
@@ -1563,16 +1564,27 @@ function renderItems(items,container){
 /* ---- multi-select items to delete several at once ---- */
 let itemSelAnchor=null;
 let itemJustDragged=false;
-function clearItemSel(){document.querySelectorAll(".item.item-sel").forEach(r=>r.classList.remove("item-sel"))}
+let selectedIds=new Set();
+function clearItemSel(){selectedIds.clear();document.querySelectorAll(".item.item-sel").forEach(r=>r.classList.remove("item-sel"))}
 function selectedItemRows(){return [...document.querySelectorAll(".item.item-sel")]}
+function applySelClasses(){
+  document.querySelectorAll(".item").forEach(r=>{
+    r.classList.toggle("item-sel",selectedIds.has(r.dataset.item));
+  });
+}
 function selectRange(container,anchorId,toRow){
   const rows=[...container.children].filter(x=>x.classList.contains("item"));
   const a=rows.indexOf(container.querySelector(`.item[data-item="${anchorId}"]`));
   const b=rows.indexOf(toRow);
   if(a<0||b<0)return false;
-  clearItemSel();
+  selectedIds.clear();
   const[lo,hi]=[Math.min(a,b),Math.max(a,b)];
-  for(let i=lo;i<=hi;i++)rows[i].classList.add("item-sel");
+  for(let i=lo;i<=hi;i++)selectedIds.add(rows[i].dataset.item);
+  applySelClasses();
+  /* take focus out of any text box so Backspace/Delete act on the SELECTION, not the text */
+  const ae=document.activeElement;
+  if(ae&&ae.isContentEditable&&ae.blur)ae.blur();
+  const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
   return true;
 }
 document.addEventListener("mousedown",e=>{
@@ -1634,7 +1646,7 @@ document.addEventListener("pointerdown",e=>{
     selectMode=true;dragSelecting=true;
     if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
     const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
-    row.classList.add("item-sel");
+    selectedIds.add(row.dataset.item);applySelClasses();
     itemSelAnchor=row.dataset.item;
     /* lock scrolling on the list so the finger-drag selects instead of scrolls */
     document.body.classList.add("selecting-items");
@@ -1675,8 +1687,10 @@ document.addEventListener("click",e=>{
   const row=e.target.closest?e.target.closest(".item"):null;
   e.preventDefault();e.stopPropagation();
   if(row){
-    row.classList.toggle("item-sel");
-    if(!selectedItemRows().length){selectMode=false;hideDelSelBar();}
+    const rid=row.dataset.item;
+    if(selectedIds.has(rid))selectedIds.delete(rid);else selectedIds.add(rid);
+    applySelClasses();
+    if(!selectedIds.size){selectMode=false;hideDelSelBar();}
     else updateDelSelBar();
   }else{
     selectMode=false;clearItemSel();hideDelSelBar();
@@ -1688,8 +1702,8 @@ function itemsFromRows(rows){
   return rows.map(r=>{const it=byId[r.dataset.item];return it?JSON.parse(JSON.stringify(it)):null}).filter(Boolean);
 }
 function copySelectedItems(){
-  const sel=selectedItemRows();if(!sel.length)return false;
-  itemClipboard=itemsFromRows(sel);
+  const ids=[...selectedIds];if(!ids.length)return false;
+  itemClipboard=ids.map(id=>byId[id]).filter(Boolean).map(i=>JSON.parse(JSON.stringify(i)));
   /* also put plain text on the system clipboard so you can paste elsewhere */
   try{const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");navigator.clipboard&&navigator.clipboard.writeText(text)}catch(e){}
   return true;
@@ -1700,6 +1714,7 @@ function pasteItemsAfter(targetRow){
   let listId=null,idx=-1;
   if(targetRow){const c=targetRow.closest(".itemlist,.tasks-body");if(c)listId=c.dataset.list;}
   if(!listId){const sel=selectedItemRows();if(sel.length){const c=sel[sel.length-1].closest(".itemlist,.tasks-body");if(c){listId=c.dataset.list;targetRow=sel[sel.length-1]}}}
+  if(!listId&&selectedIds.size){const first=document.querySelector(`.item[data-item="${[...selectedIds][0]}"]`);if(first){const c=first.closest(".itemlist,.tasks-body");if(c){listId=c.dataset.list;targetRow=first}}}
   if(!listId)return;
   const arr=findItemArray(listId);if(!arr)return;
   if(targetRow){idx=arr.findIndex(i=>i.id===targetRow.dataset.item)}
@@ -1707,19 +1722,19 @@ function pasteItemsAfter(targetRow){
   if(idx>=0)arr.splice(idx+1,0,...fresh);else arr.push(...fresh);
   clearItemSel();hideDelSelBar();selectMode=false;renderPage();saveSoon();
   /* re-highlight the pasted items */
-  setTimeout(()=>{fresh.forEach(f=>{const el=document.querySelector(`.item[data-item="${f.id}"]`);if(el)el.classList.add("item-sel")});updateDelSelBar()},0);
+  setTimeout(()=>{selectedIds.clear();fresh.forEach(f=>selectedIds.add(f.id));applySelClasses();updateDelSelBar()},0);
 }
 /* delete / copy / cut / paste for selected items */
 document.addEventListener("keydown",e=>{
   if(viewer)return;
-  const sel=selectedItemRows();
+  const ids=[...selectedIds];
   const mod=e.metaKey||e.ctrlKey;
-  if(sel.length>=1&&mod&&e.key.toLowerCase()==="c"){e.preventDefault();copySelectedItems();return}
-  if(sel.length>=1&&mod&&e.key.toLowerCase()==="x"){e.preventDefault();if(copySelectedItems())deleteItemsByIds(sel.map(r=>r.dataset.item));return}
-  if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(sel.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(sel[sel.length-1]||null);return}
-  if(sel.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
+  if(ids.length>=1&&mod&&e.key.toLowerCase()==="c"){e.preventDefault();copySelectedItems();return}
+  if(ids.length>=1&&mod&&e.key.toLowerCase()==="x"){e.preventDefault();if(copySelectedItems())deleteItemsByIds(ids);return}
+  if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(ids.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(null);return}
+  if(ids.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
     e.preventDefault();e.stopPropagation();
-    deleteItemsByIds(sel.map(r=>r.dataset.item));
+    deleteItemsByIds(ids);
   }
 },true);
 function deleteItemsByIds(ids){
@@ -1738,11 +1753,12 @@ function deleteItemsByIds(ids){
 let delSelBar=null;
 function updateDelSelBar(){
   const sel=selectedItemRows();
+  const count=selectedIds.size;
   const minShow=selectMode?1:2;
-  if(sel.length<minShow){hideDelSelBar();return}
+  if(count<minShow){hideDelSelBar();return}
   if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
   const canPaste=itemClipboard.length>0;
-  delSelBar.innerHTML=`<span class="delsel-count">${sel.length} selected</span>
+  delSelBar.innerHTML=`<span class="delsel-count">${count} selected</span>
     <button id="selcopy" title="copy">${icon("copy",14)}</button>
     <button id="selcut" title="cut">${icon("scissors",14)}</button>
     ${canPaste?`<button id="selpaste" title="paste after">${icon("clipboard",14)}</button>`:""}
@@ -1750,9 +1766,9 @@ function updateDelSelBar(){
     <button id="delselx">done</button>`;
   delSelBar.style.display="flex";
   delSelBar.querySelector("#selcopy").onclick=()=>{copySelectedItems();flashBar("copied")};
-  delSelBar.querySelector("#selcut").onclick=()=>{if(copySelectedItems()){selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))}};
-  if(canPaste){const pb=delSelBar.querySelector("#selpaste");if(pb)pb.onclick=()=>pasteItemsAfter(sel[sel.length-1]||null)}
-  delSelBar.querySelector("#delselbtn").onclick=()=>{selectMode=false;deleteItemsByIds(sel.map(r=>r.dataset.item))};
+  delSelBar.querySelector("#selcut").onclick=()=>{const ids=[...selectedIds];if(copySelectedItems()){selectMode=false;deleteItemsByIds(ids)}};
+  if(canPaste){const pb=delSelBar.querySelector("#selpaste");if(pb)pb.onclick=()=>pasteItemsAfter(null)}
+  delSelBar.querySelector("#delselbtn").onclick=()=>{const ids=[...selectedIds];selectMode=false;deleteItemsByIds(ids)};
   delSelBar.querySelector("#delselx").onclick=()=>{selectMode=false;clearItemSel();hideDelSelBar()};
 }
 function flashBar(msg){if(!delSelBar)return;const c=delSelBar.querySelector(".delsel-count");if(c){const o=c.textContent;c.textContent=msg;setTimeout(()=>{if(c)c.textContent=o},900)}}
