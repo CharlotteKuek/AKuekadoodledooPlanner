@@ -1739,22 +1739,45 @@ function currentSelIds(){
   const rows=[...document.querySelectorAll(".item.item-sel")];
   return rows.map(r=>r.dataset.item).filter(Boolean);
 }
-/* delete / copy / cut / paste for selected items */
+/* where a paste should land: the item the cursor is in, or the last selected item */
+function pasteTargetRow(){
+  const ae=document.activeElement;
+  if(ae&&ae.closest){const r=ae.closest(".item");if(r)return r}
+  const rows=[...document.querySelectorAll(".item.item-sel")];
+  if(rows.length)return rows[rows.length-1];
+  if(lastFocusedItemId){const r=document.querySelector(`.item[data-item="${lastFocusedItemId}"]`);if(r)return r}
+  return null;
+}
+let lastFocusedItemId=null;
+document.addEventListener("focusin",e=>{
+  const r=e.target.closest?e.target.closest(".item"):null;
+  if(r)lastFocusedItemId=r.dataset.item;
+});
+/* copy / cut / paste / delete for selected items */
 document.addEventListener("keydown",e=>{
   if(viewer)return;
-  const ids=currentSelIds();
   const mod=e.metaKey||e.ctrlKey;
-  if(ids.length>=1&&mod&&e.key.toLowerCase()==="c"){e.preventDefault();copySelectedItems();return}
-  if(ids.length>=1&&mod&&e.key.toLowerCase()==="x"){e.preventDefault();if(copySelectedItems())deleteItemsByIds(ids);return}
-  if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(ids.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(null);return}
+  const ids=currentSelIds();
+  if(mod&&e.key.toLowerCase()==="c"&&ids.length>=1){e.preventDefault();copySelectedItems();showToast(ids.length+" copied");return}
+  if(mod&&e.key.toLowerCase()==="x"&&ids.length>=1){
+    e.preventDefault();
+    try{
+      if(copySelectedItems()){deleteItemsByIds(ids);showToast(ids.length+" cut — click where you want them and press ⌘V")}
+    }catch(err){showToast("Cut error: "+(err&&err.message?err.message:err))}
+    return;
+  }
+  /* paste works whenever we have something cut/copied — no selection needed */
+  if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length){
+    const target=pasteTargetRow();
+    if(target){e.preventDefault();
+      try{pasteItemsAfter(target);showToast(itemClipboard.length+" pasted")}
+      catch(err){showToast("Paste error: "+(err&&err.message?err.message:err))}
+      return;
+    }
+  }
   if(ids.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-    try{
-      const before=countAllItems();
-      deleteItemsByIds(ids);
-      const after=countAllItems();
-      if(after===before)showToast("Couldn't delete: items not found in any list ("+ids.length+" selected)");
-    }catch(err){showToast("Delete error: "+(err&&err.message?err.message:err))}
+    try{deleteItemsByIds(ids)}catch(err){showToast("Delete error: "+(err&&err.message?err.message:err))}
     return;
   }
 },true);
@@ -1796,31 +1819,14 @@ function deleteItemsByIds(ids){
   if(S.ideas&&Array.isArray(S.ideas.groups)){
     S.ideas.groups.forEach(gr=>(gr.items||[]).forEach(it=>{removeFrom(it.items);scanSections(it.detail)}));
   }
-  clearItemSel();selectMode=false;hideDelSelBar();renderPage();saveSoon();
+  clearItemSel();selectMode=false;renderPage();saveSoon();
 }
-/* small floating "delete N" bar when multiple items are selected */
-let delSelBar=null;
-function updateDelSelBar(){
-  const sel=selectedItemRows();
-  const count=selectedIds.size;
-  const minShow=selectMode?1:2;
-  if(count<minShow){hideDelSelBar();return}
-  if(!delSelBar){delSelBar=document.createElement("div");delSelBar.id="delselbar";document.body.appendChild(delSelBar)}
-  const canPaste=itemClipboard.length>0;
-  delSelBar.innerHTML=`<span class="delsel-count">${count} selected</span>
-    <button id="selcopy" title="copy">${icon("copy",14)}</button>
-    <button id="selcut" title="cut">${icon("scissors",14)}</button>
-    ${canPaste?`<button id="selpaste" title="paste after">${icon("clipboard",14)}</button>`:""}
-    <button id="delselbtn" class="danger" title="delete">${icon("trash",14)}</button>
-    <button id="delselx">done</button>`;
-  delSelBar.style.display="flex";
-  delSelBar.querySelector("#selcopy").onclick=()=>{copySelectedItems();flashBar("copied")};
-  delSelBar.querySelector("#selcut").onclick=()=>{const ids=[...selectedIds];if(copySelectedItems()){selectMode=false;deleteItemsByIds(ids)}};
-  if(canPaste){const pb=delSelBar.querySelector("#selpaste");if(pb)pb.onclick=()=>pasteItemsAfter(null)}
-  delSelBar.querySelector("#delselbtn").onclick=()=>{const ids=[...selectedIds];selectMode=false;deleteItemsByIds(ids)};
-  delSelBar.querySelector("#delselx").onclick=()=>{selectMode=false;clearItemSel();hideDelSelBar()};
-}
-function flashBar(msg){if(!delSelBar)return;const c=delSelBar.querySelector(".delsel-count");if(c){const o=c.textContent;c.textContent=msg;setTimeout(()=>{if(c)c.textContent=o},900)}}
+/* The floating action bar is gone — selection is driven purely by keyboard shortcuts
+   (and, on touch, the long-press + drag gesture). These stay as no-ops because they're
+   called from several places. */
+function updateDelSelBar(){}
+function hideDelSelBar(){}
+function flashBar(){}
 function clearSection(sec){
   if(!sec)return;
   if(sec.type==="grid"){sec.cells.forEach(c=>c.items=[newItem("todo")])}
@@ -2407,21 +2413,29 @@ document.addEventListener("pointerdown",e=>{
   const h=e.target.closest("[data-draghandle]");if(!h||viewer)return;
   const row=h.closest("[data-dragrow]");if(!row)return;
   e.preventDefault();
-  drag={row,container:row.parentElement,kind:row.dataset.dragrow,moved:false};
-  row.classList.add("dragging");h.setPointerCapture(e.pointerId);
+  /* if this row is part of a multi-selection, drag the whole group together */
+  let group=[row];
+  if(row.dataset.dragrow==="item"&&row.classList.contains("item-sel")){
+    const selRows=[...document.querySelectorAll(".item.item-sel")];
+    if(selRows.length>1)group=selRows;
+  }
+  group.forEach(r=>r.classList.add("dragging"));
+  drag={row,group,container:row.parentElement,kind:row.dataset.dragrow,moved:false};
+  h.setPointerCapture(e.pointerId);
 });
 document.addEventListener("pointermove",e=>{
   if(!drag)return;drag.moved=true;
   /* items can move BETWEEN lists (e.g. Monday -> Tuesday); other kinds stay in their container */
   if(drag.kind==="item"){
-    const overList=(document.elementFromPoint(e.clientX,e.clientY)||{}).closest?.(".itemlist,.tasks-body");
-    const list=overList&&overList.closest?overList.closest(".itemlist,.tasks-body"):null;
+    const hit=document.elementFromPoint(e.clientX,e.clientY);
+    const list=hit&&hit.closest?hit.closest(".itemlist,.tasks-body"):null;
     const container=list||drag.container;
-    const rows=[...container.children].filter(x=>x!==drag.row&&x.dataset&&x.dataset.dragrow==="item");
+    const grp=drag.group||[drag.row];
+    const rows=[...container.children].filter(x=>!grp.includes(x)&&x.dataset&&x.dataset.dragrow==="item");
     let target=null;
     for(const r of rows){const rc=r.getBoundingClientRect();if(e.clientY<rc.top+rc.height/2){target=r;break}}
-    if(target){container.insertBefore(drag.row,target)}
-    else{container.appendChild(drag.row)}
+    /* insert the whole selected group, keeping their order */
+    grp.forEach(g=>{if(target)container.insertBefore(g,target);else container.appendChild(g)});
     drag.container=container;
     return;
   }
@@ -2434,7 +2448,8 @@ document.addEventListener("pointermove",e=>{
     else if(drag.container.lastElementChild!==drag.row)drag.container.appendChild(drag.row);}
 });
 document.addEventListener("pointerup",()=>{
-  if(!drag)return;drag.row.classList.remove("dragging");
+  if(!drag)return;
+  (drag.group||[drag.row]).forEach(r=>r.classList.remove("dragging"));
   if(drag.moved){
     const order=[...drag.container.children].filter(x=>x.dataset&&x.dataset.dragrow===drag.kind);
     if(drag.kind==="sec"){const host=curSecHost();
