@@ -441,6 +441,7 @@ body.resizing-cell *{touch-action:none}
 .vtab{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:11px;background:var(--brown-soft);color:var(--ink);font-weight:700;font-size:14px;cursor:pointer;border:1.5px solid transparent}
 .vtab:hover{background:color-mix(in srgb,var(--accent) 15%,var(--brown-soft))}
 .vtab.active{background:var(--brown);color:#fff}
+#toast{position:fixed;bottom:78px;left:50%;transform:translateX(-50%);z-index:120;background:#3b3a37;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;font-weight:600;display:none;max-width:90vw;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .version-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;margin-top:8px}
 .delsel-hint{font-weight:500;font-size:11.5px;color:var(--ink-soft);opacity:.75}
 .version-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--field)}
@@ -1029,34 +1030,32 @@ let history=[], histIdx=-1, histTimer=null, restoring=false;
 const TWO_DAYS=1000*60*60*24*2;
 function snapNow(){return{t:Date.now(),snap:JSON.stringify(S)}}
 /* ================= version history (restore points) =================
-   Stored SEPARATELY from S (own key/row) so they never bloat the main save path. */
+   Kept deliberately SMALL. Each restore point is a full copy of the planner, so a handful
+   is all we keep — enough to rescue you from a disaster, without slowing the app down.
+   Stored on this device only (uploading copies to the cloud on every save was too heavy). */
 let VERSIONS=[];
 const VKEY="planner-versions";
+const MAX_VERSIONS=5;
+const VERSION_EVERY=1000*60*60*2; /* auto restore point at most every 2 hours */
 function snapClean(){const c=JSON.parse(JSON.stringify(S));delete c.versions;return c;}
 function saveVersion(kind){
   const snap=JSON.stringify(snapClean());
   if(VERSIONS.length&&VERSIONS[0].snap===snap)return;
   VERSIONS.unshift({t:Date.now(),kind:kind||"auto",snap});
-  pruneVersions();
+  if(VERSIONS.length>MAX_VERSIONS)VERSIONS.length=MAX_VERSIONS;
   persistVersions();
 }
-function pruneVersions(){
-  const cutoff=Date.now()-1000*60*60*24*2;
-  VERSIONS=VERSIONS.filter((v,i)=>i<5||v.t>=cutoff);
-  if(VERSIONS.length>20)VERSIONS.length=20;
-}
+function pruneVersions(){if(VERSIONS.length>MAX_VERSIONS)VERSIONS.length=MAX_VERSIONS}
 function persistVersions(){
-  try{store.set(VKEY,JSON.stringify(VERSIONS)).catch(()=>{})}catch(e){}
-  if(supa){supa.from("planners").upsert({id:myPlannerId()+"_ver",data:VERSIONS,updated_at:new Date().toISOString()}).then(()=>{}).catch(()=>{})}
+  /* write in the background; never block the UI, never upload to the cloud */
+  setTimeout(()=>{try{store.set(VKEY,JSON.stringify(VERSIONS)).catch(()=>{})}catch(e){}},0);
 }
 async function loadVersions(){
-  try{const r=await store.get(VKEY);if(r&&r.value){VERSIONS=JSON.parse(r.value);return}}catch(e){}
-  if(supa){try{const {data}=await supa.from("planners").select("data").eq("id",myPlannerId()+"_ver").maybeSingle();if(data&&Array.isArray(data.data))VERSIONS=data.data}catch(e){}}
+  try{const r=await store.get(VKEY);if(r&&r.value){VERSIONS=JSON.parse(r.value);pruneVersions()}}catch(e){}
 }
 function maybeAutoVersion(){
-  pruneVersions();
   const last=VERSIONS[0];
-  if(!last||Date.now()-last.t>20*60*1000)saveVersion("auto");
+  if(!last||Date.now()-last.t>VERSION_EVERY)saveVersion("auto");
 }
 function renderVersionList(host){
   if(!host)return;
@@ -1081,30 +1080,37 @@ function restoreVersion(i){
   closeModal();
   alert("Restored! If this wasn't what you wanted, open Settings again and restore the 'before a restore' point.");
 }
+/* Undo = "oops, take that back" for your current session. Real apps keep a few dozen steps,
+   not days of them. Each snapshot is a FULL copy of the planner, so keeping many is what
+   caused the freezing. 25 is plenty and stays fast. */
+const MAX_HISTORY=25;
 function pruneHistory(){
-  const cutoff=Date.now()-TWO_DAYS;
-  /* keep entries within 2 days, but always keep at least the last 20 so short sessions still undo */
-  if(history.length>20){
-    const recent=history.filter(h=>h.t>=cutoff);
-    history=recent.length>=20?recent:history.slice(-Math.max(20,recent.length));
+  if(history.length>MAX_HISTORY){
+    history=history.slice(history.length-MAX_HISTORY);
     if(histIdx>history.length-1)histIdx=history.length-1;
+    if(histIdx<0)histIdx=0;
   }
 }
-let histSaveTimer=null;
-function persistHistory(){
-  clearTimeout(histSaveTimer);
-  histSaveTimer=setTimeout(()=>{store.set(HKEY,JSON.stringify({history,histIdx}),false).catch(()=>{})},2000);
-}
+/* Undo history lives in memory only. Writing it to storage meant serializing dozens of
+   full planner copies on every action, which froze the app. Restore points (Settings →
+   Version history) are the durable safety net instead. */
+function persistHistory(){}
+let histIdleTimer=null;
 function pushHistory(){
   if(restoring)return;
   flushSerialize();
-  if(histIdx<history.length-1)history=history.slice(0,histIdx+1); /* drop redo branch */
-  const cur=snapNow();
-  if(history.length&&history[history.length-1].snap===cur.snap)return;
-  history.push(cur);histIdx=history.length-1;
-  pruneHistory();
-  persistHistory();
-  updateUndoButtons();
+  /* Taking the snapshot means serializing the whole planner, which is expensive.
+     Do it when the browser is idle so it never blocks what you're typing/clicking. */
+  clearTimeout(histIdleTimer);
+  histIdleTimer=setTimeout(()=>{
+    if(restoring)return;
+    if(histIdx<history.length-1)history=history.slice(0,histIdx+1); /* drop redo branch */
+    const cur=snapNow();
+    if(history.length&&history[history.length-1].snap===cur.snap)return;
+    history.push(cur);histIdx=history.length-1;
+    pruneHistory();
+    updateUndoButtons();
+  },120);
 }
 function updateUndoButtons(){
   const u=document.getElementById("undobtn"),r=document.getElementById("redobtn");
@@ -1128,8 +1134,10 @@ function applyHistory(){
   setTimeout(()=>restoring=false,30);
 }
 async function loadHistory(){
-  try{const r=await store.get(HKEY,false);if(r&&r.value){const o=JSON.parse(r.value);history=o.history||[];histIdx=o.histIdx==null?history.length-1:o.histIdx;pruneHistory()}}catch(e){}
-  if(!history.length){history=[snapNow()];histIdx=0}
+  /* start each session with a fresh, in-memory undo stack (old stored history could be
+     hundreds of full planner copies, which froze startup). Clear any legacy blob. */
+  try{store.delete(HKEY).catch(()=>{})}catch(e){}
+  history=[snapNow()];histIdx=0;
   updateUndoButtons();
 }
 /* history model: we keep a snapshot of the state BEFORE the latest uncommitted change.
@@ -1702,8 +1710,11 @@ function itemsFromRows(rows){
 function copySelectedItems(){
   const ids=currentSelIds();if(!ids.length)return false;
   itemClipboard=ids.map(id=>byId[id]).filter(Boolean).map(i=>JSON.parse(JSON.stringify(i)));
-  /* also put plain text on the system clipboard so you can paste elsewhere */
-  try{const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");navigator.clipboard&&navigator.clipboard.writeText(text)}catch(e){}
+  /* system-clipboard write is best-effort and must never block the UI */
+  try{
+    const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).catch(()=>{});
+  }catch(e){}
   return true;
 }
 function pasteItemsAfter(targetRow){
@@ -1738,19 +1749,53 @@ document.addEventListener("keydown",e=>{
   if(mod&&e.key.toLowerCase()==="v"&&itemClipboard.length&&(ids.length>=1||selectMode)){e.preventDefault();pasteItemsAfter(null);return}
   if(ids.length>=2&&(e.key==="Backspace"||e.key==="Delete")){
     e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-    deleteItemsByIds(ids);
+    try{
+      const before=countAllItems();
+      deleteItemsByIds(ids);
+      const after=countAllItems();
+      if(after===before)showToast("Couldn't delete: items not found in any list ("+ids.length+" selected)");
+    }catch(err){showToast("Delete error: "+(err&&err.message?err.message:err))}
+    return;
   }
 },true);
-function deleteItemsByIds(ids){
-  /* find and remove these items from whichever list they belong to */
-  const removeFrom=(arr)=>{for(let i=arr.length-1;i>=0;i--){if(ids.includes(arr[i].id))arr.splice(i,1)}};
+function countAllItems(){
+  let n=0;
   S.mains.forEach(m=>m.subs.forEach(sub=>{
     sub.sections.forEach(sec=>{
-      if(sec.type==="tasks")removeFrom(sec.items);
-      if(sec.type==="grid")sec.cells.forEach(c=>removeFrom(c.items));
+      if(sec.type==="tasks")n+=sec.items.length;
+      if(sec.type==="grid")sec.cells.forEach(c=>n+=c.items.length);
     });
-    if(sub.project)sub.project.detailSections.forEach(sec=>{if(sec.type==="tasks")removeFrom(sec.items);if(sec.type==="grid")sec.cells.forEach(c=>removeFrom(c.items))});
+    if(sub.project)sub.project.detailSections.forEach(sec=>{
+      if(sec.type==="tasks")n+=sec.items.length;
+      if(sec.type==="grid")sec.cells.forEach(c=>n+=c.items.length);
+    });
   }));
+  return n;
+}
+function showToast(msg){
+  let t=document.getElementById("toast");
+  if(!t){t=document.createElement("div");t.id="toast";document.body.appendChild(t)}
+  t.textContent=msg;t.style.display="block";
+  clearTimeout(t._h);t._h=setTimeout(()=>{t.style.display="none"},4000);
+}
+function deleteItemsByIds(ids){
+  const removeFrom=(arr)=>{if(Array.isArray(arr))for(let i=arr.length-1;i>=0;i--){if(ids.includes(arr[i].id))arr.splice(i,1)}};
+  const scanSections=(secs)=>{
+    if(!Array.isArray(secs))return;
+    secs.forEach(sec=>{
+      if(!sec)return;
+      if(sec.type==="tasks")removeFrom(sec.items);
+      if(sec.type==="grid"&&Array.isArray(sec.cells))sec.cells.forEach(c=>removeFrom(c.items));
+    });
+  };
+  S.mains.forEach(m=>(m.subs||[]).forEach(sub=>{
+    scanSections(sub.sections);
+    if(sub.project)scanSections(sub.project.detailSections);
+  }));
+  /* ideas: any detail sections attached to individual ideas */
+  if(S.ideas&&Array.isArray(S.ideas.groups)){
+    S.ideas.groups.forEach(gr=>(gr.items||[]).forEach(it=>{removeFrom(it.items);scanSections(it.detail)}));
+  }
   clearItemSel();selectMode=false;hideDelSelBar();renderPage();saveSoon();
 }
 /* small floating "delete N" bar when multiple items are selected */
@@ -1877,10 +1922,12 @@ function setupIdeasLineButton(){
   ideasBtnEl.onclick=e=>{e.preventDefault();e.stopPropagation();if(ideasBtnLine){if(!ideasBtnLine.dataset.lnid)ideasBtnLine.dataset.lnid="ln"+uid();openLineNoteModal(ideasBtnLine.dataset.lnid)}};
   document.body.appendChild(ideasBtnEl);
   document.addEventListener("pointermove",e=>{
-    const np=document.querySelector(".ideas-notepad");if(!np){hideIdeasBtn();return}
-    const line=e.target.closest?e.target.closest(".ideas-notepad>*"):null;
-    if(line&&line.parentElement&&line.parentElement.classList.contains("ideas-notepad")){positionIdeasBtn(line)}
-  });
+    /* cheap bail-out: do nothing unless we're actually hovering inside the ideas notepad */
+    if(!e.target||!e.target.closest)return;
+    const line=e.target.closest(".ideas-notepad>*");
+    if(!line){if(ideasBtnLine)hideIdeasBtn();return}
+    positionIdeasBtn(line);
+  },{passive:true});
   document.addEventListener("scroll",()=>{if(ideasBtnLine&&document.contains(ideasBtnLine))positionIdeasBtn(ideasBtnLine);else hideIdeasBtn()},true);
 }
 function positionIdeasBtn(line){
@@ -2868,7 +2915,7 @@ function openSettings(){
     </div>
     <button class="ghostbtn" id="setcodebtn" style="margin-top:8px">Log out</button>
     <h3>Version history</h3>
-    <p class="note-small">Automatic restore points saved as you work. If something goes wrong, jump back to an earlier version. Restoring replaces your current planner — a "before restore" point is saved first, just in case.</p>
+    <p class="note-small">A few recent restore points, saved on this device. Deliberately kept small — each one is a full copy of your planner, so holding lots of them would slow the app down. Use "Download backup" below for long-term safekeeping.</p>
     <div id="versionlist" class="version-list"></div>
     <button class="ghostbtn" id="savevernow" style="margin-top:8px">${icon("plus",14)} Save a restore point now</button>
     <h3>Back up your data</h3>
