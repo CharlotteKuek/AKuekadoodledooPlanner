@@ -1819,13 +1819,40 @@ function deleteItemsByIds(ids){
   if(S.ideas&&Array.isArray(S.ideas.groups)){
     S.ideas.groups.forEach(gr=>(gr.items||[]).forEach(it=>{removeFrom(it.items);scanSections(it.detail)}));
   }
-  clearItemSel();selectMode=false;renderPage();saveSoon();
+  clearItemSel();selectMode=false;hideDelSelBar();renderPage();saveSoon();
 }
-/* The floating action bar is gone — selection is driven purely by keyboard shortcuts
-   (and, on touch, the long-press + drag gesture). These stay as no-ops because they're
-   called from several places. */
-function updateDelSelBar(){}
-function hideDelSelBar(){}
+/* Floating action bar: on a computer you can delete a selection with the Delete key,
+   but on touch (iPhone) there's no key — so this bar gives a tappable Delete button.
+   It appears whenever one or more items are selected. */
+function ensureDelSelBar(){
+  let bar=document.getElementById("delselbar");
+  if(bar)return bar;
+  bar=document.createElement("div");
+  bar.id="delselbar";
+  bar.innerHTML=`<span class="delsel-count"></span>`+
+    `<button id="delselbtn" class="danger">${icon("trash",14)}Delete</button>`+
+    `<button id="delselx">Done</button>`;
+  document.body.appendChild(bar);
+  bar.querySelector("#delselbtn").addEventListener("click",e=>{
+    e.preventDefault();e.stopPropagation();
+    const ids=currentSelIds();
+    if(ids.length){try{deleteItemsByIds(ids);showToast(ids.length+" deleted")}catch(err){showToast("Delete error: "+(err&&err.message?err.message:err))}}
+    hideDelSelBar();
+  });
+  bar.querySelector("#delselx").addEventListener("click",e=>{
+    e.preventDefault();e.stopPropagation();
+    clearItemSel();selectMode=false;hideDelSelBar();
+  });
+  return bar;
+}
+function updateDelSelBar(){
+  const ids=currentSelIds();
+  if(!ids.length){hideDelSelBar();return;}
+  const bar=ensureDelSelBar();
+  bar.querySelector(".delsel-count").textContent=ids.length+" selected";
+  bar.style.display="flex";
+}
+function hideDelSelBar(){const bar=document.getElementById("delselbar");if(bar)bar.style.display="none";}
 function flashBar(){}
 function clearSection(sec){
   if(!sec)return;
@@ -2841,6 +2868,28 @@ document.addEventListener("drop",e=>{const z=e.target.closest?e.target.closest("
 document.addEventListener("paste",e=>{const z=e.target.closest?e.target.closest(".richdrop"):null;if(!z)return;
   const items=[...(e.clipboardData.items||[])].filter(i=>i.type.startsWith("image/"));
   if(items.length){e.preventDefault();items.forEach(i=>compressImage(i.getAsFile(),d=>insertImageInto(z,d)))}});
+/* when pasting text into a task/note, drop any background colour the browser copied along
+   (e.g. a task's pastel day-cell colour) so pasted tasks don't arrive highlighted */
+document.addEventListener("paste",e=>{
+  const host=e.target.closest?e.target.closest(".txt,.richnote,.rich-host,.dl-task,.cell-name,#noteedit"):null;
+  if(!host||!host.isContentEditable)return;
+  const cd=e.clipboardData;if(!cd)return;
+  /* let the image-paste handler above deal with pasted images */
+  if([...(cd.items||[])].some(i=>i.type.startsWith("image/")))return;
+  const html=cd.getData("text/html");
+  if(!html)return; /* plain-text paste has no styles to strip — leave it to the browser */
+  e.preventDefault();
+  const tmp=document.createElement("div");tmp.innerHTML=html;
+  tmp.querySelectorAll("meta,style,title,link").forEach(n=>n.remove());
+  tmp.querySelectorAll("[style]").forEach(el=>{
+    el.style.removeProperty("background");
+    el.style.removeProperty("background-color");
+    if(!el.getAttribute("style"))el.removeAttribute("style");
+  });
+  tmp.querySelectorAll("[bgcolor]").forEach(el=>el.removeAttribute("bgcolor"));
+  document.execCommand("insertHTML",false,tmp.innerHTML);
+  host.dispatchEvent(new Event("input",{bubbles:true}));
+});
 
 /* ================= modals ================= */
 function modal(html){
