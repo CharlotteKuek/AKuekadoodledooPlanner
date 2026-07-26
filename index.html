@@ -1497,7 +1497,7 @@ function renderSection(sec){
     <span class="draghandle" data-draghandle title="drag to move">${icon("grip",15)}</span>
     <button class="colordot" data-seccolor="${sec.id}" style="background:${sec.color||"var(--accent)"}" title="section colour + background"></button>
     <div class="sec-title" contenteditable data-sync="sectitle:${sec.id}" data-ph="Section name">${escHtml(sec.title)}</div>
-    <span class="sec-tools"><button class="tool" data-clearsec="${sec.id}" title="clear everything in this section">${icon("eraser",14)}</button><button class="tool" data-dupsec="${sec.id}" title="duplicate section">${icon("copy",14)}</button><button class="tool warn" data-delsec="${sec.id}" title="delete section">${icon("trash",14)}</button></span></div>`;
+    <span class="sec-tools">${(sec.type==="tasks"||sec.type==="grid")?`<button class="tool" data-selmode="${sec.id}" title="select tasks to delete in a batch">${icon("check",14)}</button>`:""}<button class="tool" data-clearsec="${sec.id}" title="clear everything in this section">${icon("eraser",14)}</button><button class="tool" data-dupsec="${sec.id}" title="duplicate section">${icon("copy",14)}</button><button class="tool warn" data-delsec="${sec.id}" title="delete section">${icon("trash",14)}</button></span></div>`;
   if(sec.type==="grid")w.appendChild(renderGrid(sec));
   if(sec.type==="tasks"){const b=document.createElement("div");b.className="tasks-body itemlist";b.dataset.list=sec.id;renderItems(sec.items,b);w.appendChild(b)}
   if(sec.type==="notes"){const d=document.createElement("div");d.className="notes-body richnote rich-host richdrop";d.contentEditable="true";d.dataset.sync="notes:"+sec.id;d.dataset.ph="Write anything — type [] for a checkbox, - for a bullet, # for a header, or use the table button. Drop in images, paste links.";d.innerHTML=sec.html||"";upgradeCheckboxes(d);w.appendChild(d)}
@@ -1707,9 +1707,22 @@ let itemClipboard=[];
 function itemsFromRows(rows){
   return rows.map(r=>{const it=byId[r.dataset.item];return it?JSON.parse(JSON.stringify(it)):null}).filter(Boolean);
 }
-function copySelectedItems(){
-  const ids=currentSelIds();if(!ids.length)return false;
-  itemClipboard=ids.map(id=>byId[id]).filter(Boolean).map(i=>JSON.parse(JSON.stringify(i)));
+/* strip any inline background colour (e.g. the pastel day-cell colour a task was sitting in)
+   before it can be carried onto another cell/section via copy, cut or paste */
+function stripBgHtml(html){
+  if(!html)return html;
+  const tmp=document.createElement("div");tmp.innerHTML=html;
+  tmp.querySelectorAll("[style]").forEach(el=>{
+    el.style.removeProperty("background");
+    el.style.removeProperty("background-color");
+    if(!el.getAttribute("style"))el.removeAttribute("style");
+  });
+  tmp.querySelectorAll("[bgcolor]").forEach(el=>el.removeAttribute("bgcolor"));
+  return tmp.innerHTML;
+}
+function copySelectedItems(ids){
+  ids=ids||currentSelIds();if(!ids.length)return false;
+  itemClipboard=ids.map(id=>byId[id]).filter(Boolean).map(i=>{const n=JSON.parse(JSON.stringify(i));n.html=stripBgHtml(n.html);return n});
   /* system-clipboard write is best-effort and must never block the UI */
   try{
     const text=itemClipboard.map(i=>(i.html||"").replace(/<[^>]+>/g,"")).join("\n");
@@ -1757,12 +1770,25 @@ document.addEventListener("focusin",e=>{
 document.addEventListener("keydown",e=>{
   if(viewer)return;
   const mod=e.metaKey||e.ctrlKey;
-  const ids=currentSelIds();
-  if(mod&&e.key.toLowerCase()==="c"&&ids.length>=1){e.preventDefault();copySelectedItems();showToast(ids.length+" copied");return}
-  if(mod&&e.key.toLowerCase()==="x"&&ids.length>=1){
+  const key=e.key.toLowerCase();
+  let ids=currentSelIds();
+  /* no formal multi-select? fall back to whichever single task the caret is in,
+     so ⌘C/⌘X on a task you're just editing doesn't silently no-op and leave
+     a stale (older, multi-item) clipboard in place */
+  if(!ids.length&&(key==="c"||key==="x")){
+    const ae=document.activeElement;
+    const r=ae&&ae.closest?ae.closest(".item"):null;
+    /* only hijack ⌘C/⌘X for the whole task when nothing is actually text-selected —
+       otherwise this would break normal copy/cut of a highlighted word inside the task */
+    const sel=window.getSelection&&window.getSelection();
+    const noTextSelected=!sel||sel.isCollapsed;
+    if(r&&r.dataset.item&&noTextSelected)ids=[r.dataset.item];
+  }
+  if(mod&&key==="c"&&ids.length>=1){e.preventDefault();copySelectedItems(ids);showToast(ids.length+" copied");return}
+  if(mod&&key==="x"&&ids.length>=1){
     e.preventDefault();
     try{
-      if(copySelectedItems()){deleteItemsByIds(ids);showToast(ids.length+" cut — click where you want them and press ⌘V")}
+      if(copySelectedItems(ids)){deleteItemsByIds(ids);showToast(ids.length+" cut — click where you want them and press ⌘V")}
     }catch(err){showToast("Cut error: "+(err&&err.message?err.message:err))}
     return;
   }
@@ -2256,6 +2282,12 @@ document.addEventListener("click",e=>{
   if(sc){const sec=byId[sc.dataset.seccolor];openPalette(sc,"sec",col=>{sec.color=col;renderPage();saveSoon()});return}
   const gc=c("[data-grpcolor]");
   if(gc){const gr=byId[gc.dataset.grpcolor];openPalette(gc,"sec",col=>{gr.color=col;renderPage();saveSoon()});return}
+  const selmode=c("[data-selmode]");
+  if(selmode){
+    if(selectMode){selectMode=false;clearItemSel();hideDelSelBar();}
+    else{selectMode=true;showToast("tap tasks to select, then use the Delete button");}
+    return;
+  }
   const dupsec=c("[data-dupsec]");
   if(dupsec){const host=curSecHost();const idx=host.findIndex(s=>s.id===dupsec.dataset.dupsec);if(idx>-1){const copy=cloneWithIds(host[idx]);copy.title=(copy.title||"")+" copy";host.splice(idx+1,0,copy)}renderPage();saveSoon();return}
   const clrsec=c("[data-clearsec]");
@@ -2276,9 +2308,7 @@ document.addEventListener("click",e=>{
   if(dltick){const r=byId[dltick.dataset.dltick];if(r){r.done=!r.done;renderPage();saveSoon()}return}
   const dldel=c("[data-dldel]");
   if(dldel){const id=dldel.dataset.dldel;
-    for(const m of S.mains)for(const sub of m.subs)for(const sec of sub.sections)if(sec.type==="deadlines"){
-      const i=sec.rows.findIndex(x=>x.id===id);if(i>-1)sec.rows.splice(i,1);
-    }
+    eachSection(sec=>{if(sec.type==="deadlines"){const i=sec.rows.findIndex(x=>x.id===id);if(i>-1)sec.rows.splice(i,1)}});
     renderPage();saveSoon();return}
   if(c("#dloverview")){openDeadlinesView();return}
   if(c("#dlovback")){deadlinesView=false;renderPage();return}
@@ -2582,9 +2612,22 @@ document.addEventListener("keydown",e=>{
       const ni=newItem(nk);ni.indent=it.indent;home.arr.splice(home.idx,0,ni);
       pendingFocus=it.id;pendingCaret="end";rerender();saveSoon();return;
     }
+    /* split the line at the caret — text after the caret moves down into the new item,
+       matching how Enter behaves in Google Docs / Notion */
+    let afterHtml="";
+    try{
+      const r2=sel.getRangeAt(0);
+      const afterRange=document.createRange();
+      afterRange.setStart(r2.startContainer,r2.startOffset);
+      afterRange.setEnd(el,el.childNodes.length);
+      const frag=afterRange.extractContents();
+      const tmp=document.createElement("div");tmp.appendChild(frag);
+      afterHtml=tmp.innerHTML;
+    }catch(_){}
+    it.html=el.innerHTML;
     const nk=it.kind==="header"?"text":it.kind;
-    const ni=newItem(nk);ni.indent=it.indent;home.arr.splice(home.idx+1,0,ni);
-    pendingFocus=ni.id;rerender();saveSoon();
+    const ni=newItem(nk);ni.indent=it.indent;ni.html=afterHtml;home.arr.splice(home.idx+1,0,ni);
+    pendingFocus=ni.id;pendingCaret="start";rerender();saveSoon();
   }else if((e.key==="ArrowUp"||e.key==="ArrowDown")){
     /* move between items when the caret is at the very top/bottom edge of this line */
     const s=getSelection();const r=s.rangeCount?s.getRangeAt(0):null;if(!r||!r.collapsed)return;
