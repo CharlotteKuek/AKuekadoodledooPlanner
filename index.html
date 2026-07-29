@@ -1166,6 +1166,23 @@ async function saveNow(){
     if(S.share.on){publishShared().catch(()=>{});}
   },1500);
 }
+/* saveSoon/saveTyping debounce local save by 900ms and the cloud upload by another 1500ms —
+   fine while the tab stays open, but if a phone gets locked or the app/tab gets closed right
+   after typing, those timers never get to fire and the edit never reaches the cloud (so it
+   never shows up on another device). Flush everything immediately the moment the page is
+   about to go away or out of view, so a task typed right before switching apps still syncs. */
+function flushSaveNow(){
+  if(!S)return;
+  if(viewer){pushSharedEdits().catch(()=>{});return}
+  clearTimeout(saveTimer);clearTimeout(histTimer);clearTimeout(cloudTimer);
+  flushTypingHistory();
+  flushSerialize();
+  try{store.set(KEY,JSON.stringify(S))}catch(e){}
+  cloudSavePlanner().catch(()=>{});
+  if(S.share&&S.share.on)publishShared().catch(()=>{});
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushSaveNow()});
+window.addEventListener("pagehide",flushSaveNow);
 function sharedPayload(){
   const out={appName:S.shareTitle,updated:new Date().toLocaleString(),mains:[]};
   S.mains.forEach(m=>{
