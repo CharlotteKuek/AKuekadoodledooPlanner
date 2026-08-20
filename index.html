@@ -1183,6 +1183,20 @@ function flushSaveNow(){
 }
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushSaveNow()});
 window.addEventListener("pagehide",flushSaveNow);
+/* the weekly grid's dates are always computed live from today's real date (see dateForDay/
+   mondayOfThisWeek below) — but they're only recomputed when something re-renders the page.
+   If the tab is just left open across midnight (or the whole night), the on-screen dates
+   silently stay on the old day until something happens to trigger a redraw. Watch for the
+   calendar day actually changing and refresh the page automatically when it does. */
+let lastSeenDay=new Date().toDateString();
+function checkDateRollover(){
+  const today=new Date().toDateString();
+  if(today===lastSeenDay)return;
+  lastSeenDay=today;
+  if(!viewer&&S){fixActive();renderAll()}
+}
+setInterval(checkDateRollover,60000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")checkDateRollover()});
 function sharedPayload(){
   const out={appName:S.shareTitle,updated:new Date().toLocaleString(),mains:[]};
   S.mains.forEach(m=>{
@@ -1625,7 +1639,9 @@ document.addEventListener("mousedown",e=>{
 });
 /* drag across items (on the marker/empty area) to select a range */
 let itemDragSel=false;
+let lastPtrX=0,lastPtrY=0;
 document.addEventListener("pointermove",e=>{
+  if(e.pointerType!=="touch"){lastPtrX=e.clientX;lastPtrY=e.clientY;}
   if(viewer)return;
   if(drag)return; /* a reorder drag is in progress */
   if(dragSelecting)return; /* mobile long-press drag handles selection */
@@ -1646,6 +1662,18 @@ document.addEventListener("pointermove",e=>{
   itemDragSel=true;itemJustDragged=true;
   if(selectRange(container,itemSelAnchor,row))updateDelSelBar();
 });
+/* holding the mouse down mid-drag-select and scrolling with the trackpad (instead of moving
+   the mouse) brings new rows under the cursor without a pointermove ever firing — so extend
+   the selection to whatever's now under the last known cursor position on every scroll tick */
+document.addEventListener("scroll",()=>{
+  if(!itemDragSel||!itemSelAnchor)return;
+  const el=document.elementFromPoint(lastPtrX,lastPtrY);
+  const row=el&&el.closest?el.closest(".item"):null;
+  if(!row)return;
+  const container=row.parentElement;
+  if(!container.querySelector(`.item[data-item="${itemSelAnchor}"]`))return; /* anchor is in a different list */
+  if(selectRange(container,itemSelAnchor,row))updateDelSelBar();
+},true);
 document.addEventListener("pointerup",()=>{
   if(itemDragSel){itemDragSel=false;updateDelSelBar();
     /* keep the flag briefly so the follow-up click doesn't clear the selection */
@@ -1713,7 +1741,13 @@ document.addEventListener("click",e=>{
     const rid=row.dataset.item;
     if(selectedIds.has(rid))selectedIds.delete(rid);else selectedIds.add(rid);
     applySelClasses();
-    if(!selectedIds.size){selectMode=false;hideDelSelBar();}
+    if(!selectedIds.size){
+      selectMode=false;hideDelSelBar();
+      /* the tap that clears the last selection should also start editing that line —
+         otherwise you'd have to tap once to deselect and again just to type */
+      const txt=row.querySelector(".txt");
+      if(txt)setTimeout(()=>{txt.focus();const r=document.createRange();r.selectNodeContents(txt);r.collapse(false);const sel=getSelection();sel.removeAllRanges();sel.addRange(r)},0);
+    }
     else updateDelSelBar();
   }else{
     selectMode=false;clearItemSel();hideDelSelBar();
@@ -1772,7 +1806,13 @@ function currentSelIds(){
 /* where a paste should land: the item the cursor is in, or the last selected item */
 function pasteTargetRow(){
   const ae=document.activeElement;
-  if(ae&&ae.closest){const r=ae.closest(".item");if(r)return r}
+  if(ae&&ae.closest){
+    const r=ae.closest(".item");if(r)return r;
+    /* focus is on some other editable area (notes, a deadline row, a cell name, …) —
+       don't hijack the paste into whichever task happened to be focused before that;
+       let the browser paste normally into the field the user is actually looking at */
+    if(ae.isContentEditable||/INPUT|TEXTAREA/.test(ae.tagName))return null;
+  }
   const rows=[...document.querySelectorAll(".item.item-sel")];
   if(rows.length)return rows[rows.length-1];
   if(lastFocusedItemId){const r=document.querySelector(`.item[data-item="${lastFocusedItemId}"]`);if(r)return r}
@@ -2610,6 +2650,23 @@ function textBeforeCaret(){
   const n=r.startContainer;if(n.nodeType!==3)return{node:null,text:""};
   return{node:n,text:n.textContent.slice(0,r.startOffset)};
 }
+/* turn a bare URL immediately before the caret into a clickable link — same convention
+   (regex + https:// normalization) as autoLink() for the notes area */
+function autoLinkItem(el){
+  const b=textBeforeCaret();if(!b||!b.node)return;
+  const m=b.text.match(/(^|\s)((https?:\/\/|www\.)[^\s]+)$/i);
+  if(!m)return;
+  const url=m[2];const start=b.text.length-url.length;
+  let p=b.node.parentElement;while(p&&p!==el){if(p.tagName==="A")return;p=p.parentElement}
+  const range=document.createRange();
+  try{range.setStart(b.node,start);range.setEnd(b.node,b.text.length)}catch(_){return}
+  const s=getSelection();s.removeAllRanges();s.addRange(range);
+  const href=/^https?:\/\//i.test(url)?url:"https://"+url;
+  document.execCommand("createLink",false,href);
+  el.querySelectorAll("a").forEach(a=>a.target="_blank");
+  s.collapseToEnd();
+  el.dispatchEvent(new Event("input",{bubbles:true}));
+}
 document.addEventListener("keydown",e=>{
   const el=e.target.closest?e.target.closest('[data-sync^="item:"]'):null;if(!el)return;
   if(e.target.closest("td"))return; /* inside a table cell — let the table handle keys */
@@ -2661,10 +2718,8 @@ document.addEventListener("keydown",e=>{
     e.preventDefault();
     if(e.shiftKey){if((it.indent||0)>0){it.indent--;el.closest(".item").dataset.indent=it.indent;saveSoon()}}
     else{it.indent=Math.min(3,(it.indent||0)+1);el.closest(".item").dataset.indent=it.indent;saveSoon()}
-  }else if(e.key==="Backspace"&&empty){
-    e.preventDefault();
-    if(it.kind!=="text"){it.kind="text";it.done=false;pendingFocus=it.id;rerender();saveSoon()}
-    else if(home.arr.length>1){home.arr.splice(home.idx,1);const prev=home.arr[Math.max(0,home.idx-1)];pendingFocus=prev.id;rerender();saveSoon()}
+  }else if(e.key==="Backspace"){
+    if(handleItemBackspace(el,home,it,empty,rerender))e.preventDefault();
   }else if(e.key==="/"&&empty){
     setTimeout(()=>openSlashMenu(el,{type:"item",item:it}),0);
   }else if(e.key===" "){
@@ -2675,7 +2730,42 @@ document.addEventListener("keydown",e=>{
       if(b.text==="-")return conv(1,"bullet");
       if(b.text==="#")return conv(1,"header");
     }
+    autoLinkItem(el);
   }
+});
+/* caret sits at the very start of the (possibly non-empty) text, with nothing before it */
+function caretAtStartOf(el){
+  const sel=getSelection();if(!sel.rangeCount)return false;
+  const r=sel.getRangeAt(0);if(!r.collapsed)return false;
+  try{const pre=document.createRange();pre.selectNodeContents(el);pre.setEnd(r.startContainer,r.startOffset);return pre.toString().replace(new RegExp(String.fromCharCode(8203),"g"),"").length===0}catch(_){return false}
+}
+/* shared Backspace behaviour for a task line — used by both the keydown handler (desktop)
+   and the beforeinput fallback (mobile, where keydown on an empty contenteditable can be
+   swallowed by the virtual keyboard and never fires). Returns true if it handled the key. */
+function handleItemBackspace(el,home,it,empty,rerender){
+  if(!empty){
+    /* caret between the checkbox/bullet/header marker and non-empty text → strip the
+       marker first, Notion-style, instead of doing nothing */
+    if(caretAtStartOf(el)&&it.kind!=="text"){it.kind="text";it.done=false;pendingFocus=it.id;pendingCaret="start";rerender();saveSoon();return true}
+    return false;
+  }
+  if(it.kind!=="text"){it.kind="text";it.done=false;pendingFocus=it.id;rerender();saveSoon();return true}
+  if(home.arr.length>1){home.arr.splice(home.idx,1);const prev=home.arr[Math.max(0,home.idx-1)];pendingFocus=prev.id;rerender();saveSoon();return true}
+  return false;
+}
+/* mobile fallback: iOS/Android virtual keyboards frequently don't dispatch a real keydown
+   for Backspace on an already-empty contenteditable line, so the handler above never fires.
+   beforeinput's deleteContentBackward is dispatched reliably everywhere. */
+document.addEventListener("beforeinput",e=>{
+  if(e.inputType!=="deleteContentBackward")return;
+  const el=e.target.closest?e.target.closest('[data-sync^="item:"]'):null;if(!el)return;
+  if(e.target.closest("td"))return;
+  const id=el.dataset.sync.split(":")[1];const home=itemHome(id);if(!home)return;
+  const it=home.arr[home.idx];
+  const empty=el.textContent.trim()===""&&el.innerHTML.replace(/<br\/?>/gi,"")==="";
+  if(!empty)return; /* let normal character deletion (and the keydown handler above) do its thing */
+  const rerender=()=>{if(viewer)renderViewer(sharedRef);else renderPage()};
+  if(handleItemBackspace(el,home,it,empty,rerender))e.preventDefault();
 });
 document.addEventListener("pointerover",e=>{const l=e.target.closest?e.target.closest(".itemlist"):null;if(l)lastList=l.dataset.list});
 document.addEventListener("keydown",e=>{
