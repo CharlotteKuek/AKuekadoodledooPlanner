@@ -1326,7 +1326,9 @@ async function load(){
   else{S=defaultState()}
   if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
   dirty=false; /* freshly loaded — matches whatever we just read, nothing to push yet */
+  const repaired=repairData();
   fixActive();applyTheme();renderAll();markSaving("saved");
+  if(repaired)saveSoon();
   if(supa)cloudSubscribeOwnPlanner();
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
   await loadHistory();
@@ -2279,6 +2281,41 @@ function eachSection(fn){
   }));
 }
 function eachIdea(fn){for(const g of S.ideas.groups)for(const it of g.items)fn(it)}
+/* one-time repair pass run right after load: fixes two kinds of data corruption that can
+   make a specific day's box behave strangely (clicks/focus landing on the wrong item, or a
+   cell that can't be scrolled/clicked into properly) — a duplicate item id shared by two
+   items anywhere in the planner (whichever one the browser finds first "wins" every lookup,
+   so the other becomes impossible to click into normally), and a corrupted/invalid stored
+   height on a weekly-grid day cell. Returns true if anything was actually fixed. */
+function repairData(){
+  if(!S)return false;
+  let changed=false;
+  const seen=new Set();
+  const fixItems=(arr)=>{
+    if(!Array.isArray(arr))return;
+    arr.forEach(it=>{
+      if(!it||!it.id)return;
+      if(seen.has(it.id)){it.id=uid();changed=true}
+      seen.add(it.id);
+    });
+  };
+  const fixCell=(c)=>{
+    fixItems(c.items);
+    if(typeof c.height!=="number"||!isFinite(c.height)||c.height<60){c.height=maxCellPx();changed=true}
+  };
+  eachSection(sec=>{
+    if(sec.type==="tasks")fixItems(sec.items);
+    if(sec.type==="grid")(sec.cells||[]).forEach(fixCell);
+  });
+  eachIdea(it=>{
+    fixItems(it.items);
+    if(it.detail)it.detail.forEach(sec=>{
+      if(sec.type==="tasks")fixItems(sec.items);
+      if(sec.type==="grid")(sec.cells||[]).forEach(fixCell);
+    });
+  });
+  return changed;
+}
 function listById(id){
   let out=null;
   eachSection(sec=>{if(sec.type==="tasks"&&sec.id===id)out=sec.items;if(sec.type==="grid")sec.cells.forEach(c=>{if(c.id===id)out=c.items})});
