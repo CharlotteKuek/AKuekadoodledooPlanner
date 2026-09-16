@@ -899,8 +899,8 @@ function cloudSubscribeOwnPlanner(){
 }
 function applyRemotePlanner(remote){
   if(viewer||!S)return;
-  /* a local edit is still mid-flight (not yet saved) — don't stomp on it */
-  if(saveTimer||cloudTimer)return;
+  /* a local edit hasn't been confirmed saved yet — don't stomp on it with an older/unrelated push */
+  if(dirty)return;
   /* the user is actively typing right now — don't yank the field out from under them */
   const ae=document.activeElement;
   if(ae&&(ae.isContentEditable||/INPUT|TEXTAREA/.test(ae.tagName)))return;
@@ -910,6 +910,7 @@ function applyRemotePlanner(remote){
   if(same)return;
   S=migrateAny(remote);
   if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
+  dirty=false;
   fixActive();applyTheme();renderAll();markSaving("saved");
   try{store.set(KEY,JSON.stringify(S))}catch(e){}
 }
@@ -1159,7 +1160,8 @@ function applyHistory(){
   requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));
   store.set(KEY,JSON.stringify(S)).catch(()=>{});
   persistHistory();
-  clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudSavePlanner().catch(()=>{});if(S.share.on)publishShared().catch(()=>{})},400);
+  dirty=true;
+  clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudSaveAndClearDirty();if(S.share.on)publishShared().catch(()=>{})},400);
   updateUndoButtons();markSaving("saved");
   setTimeout(()=>restoring=false,30);
 }
@@ -1174,13 +1176,23 @@ async function loadHistory(){
    - discrete actions commit immediately (each click = one undo step)
    - typing commits on a short debounce (one burst = one undo step)
    this prevents a rapid batch of actions from collapsing into a single undo. */
-function saveSoon(){if(viewer&&!viewerCanEdit)return;markSaving("editing");clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,900);
+function saveSoon(){if(viewer&&!viewerCanEdit)return;dirty=true;markSaving("editing");clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,900);
   if(!restoring&&!viewer){clearTimeout(histTimer);flushTypingHistory();pushHistory()}}
 let typingPending=false;
-function saveTyping(){if(viewer&&!viewerCanEdit)return;markSaving("editing");clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,900);
+function saveTyping(){if(viewer&&!viewerCanEdit)return;dirty=true;markSaving("editing");clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,900);
   if(!restoring&&!viewer){typingPending=true;clearTimeout(histTimer);histTimer=setTimeout(()=>{typingPending=false;pushHistory()},600)}}
 function flushTypingHistory(){if(typingPending){typingPending=false;clearTimeout(histTimer);pushHistory()}}
 let cloudTimer=null;
+/* true whenever S has changed locally since the last time we know it matched the cloud
+   (a real edit, undo/redo — set false again once a save actually lands, or once we load/
+   receive a copy from elsewhere). Saving only when dirty stops an untouched, possibly-stale
+   snapshot (e.g. a tab that loaded a moment before another device's edit reached the cloud)
+   from being blindly re-uploaded and clobbering that newer edit — see flushSaveNow below. */
+let dirty=false;
+async function cloudSaveAndClearDirty(){
+  const ok=await cloudSavePlanner().catch(()=>false);
+  if(ok)dirty=false;
+}
 async function saveNow(){
   if(viewer){try{await pushSharedEdits()}catch(e){}markSaving("saved");return}
   flushSerialize();
@@ -1192,7 +1204,7 @@ async function saveNow(){
   /* cloud upload is the slow part — debounce it so rapid edits don't each trigger an upload */
   clearTimeout(cloudTimer);
   cloudTimer=setTimeout(()=>{
-    cloudSavePlanner().catch(()=>{});
+    cloudSaveAndClearDirty();
     if(S.share.on){publishShared().catch(()=>{});}
   },400);
 }
@@ -1204,11 +1216,12 @@ async function saveNow(){
 function flushSaveNow(){
   if(!S)return;
   if(viewer){pushSharedEdits().catch(()=>{});return}
+  if(!dirty)return; /* nothing changed locally since we last matched the cloud — don't re-upload a stale copy */
   clearTimeout(saveTimer);clearTimeout(histTimer);clearTimeout(cloudTimer);
   flushTypingHistory();
   flushSerialize();
   try{store.set(KEY,JSON.stringify(S))}catch(e){}
-  cloudSavePlanner().catch(()=>{});
+  cloudSaveAndClearDirty();
   if(S.share&&S.share.on)publishShared().catch(()=>{});
 }
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushSaveNow()});
@@ -1287,6 +1300,7 @@ async function load(){
   if(raw){S=migrateAny(raw)}
   else{S=defaultState()}
   if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
+  dirty=false; /* freshly loaded — matches whatever we just read, nothing to push yet */
   fixActive();applyTheme();renderAll();markSaving("saved");
   if(supa)cloudSubscribeOwnPlanner();
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
