@@ -95,6 +95,21 @@ img{max-width:100%}
 #undobtn,#redobtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
 #undobtn:hover,#redobtn:hover{background:var(--line);color:var(--ink)}
 #undobtn:disabled,#redobtn:disabled{opacity:.28;cursor:default}
+#streakwrap{display:flex;flex-direction:column;align-items:center;gap:0;user-select:none}
+#streakfire{display:flex;align-items:center;gap:3px;padding:3px 7px;border-radius:10px;line-height:1;background:transparent}
+#streakfire:hover{background:var(--line)}
+#streakfire .flame{font-size:17px;display:inline-block;transform-origin:60% 90%}
+#streakfire.pop .flame{animation:streakpop .5s ease}
+@keyframes streakpop{
+  0%{transform:scale(1) translateY(0) rotate(0)}
+  30%{transform:scale(1.4) translateY(-7px) rotate(-10deg)}
+  55%{transform:scale(.92) translateY(1px) rotate(7deg)}
+  100%{transform:scale(1) translateY(0) rotate(0)}
+}
+#streakcount{font-size:13px;font-weight:800;color:var(--ink)}
+#streaklabel{font-size:10px;color:var(--ink-soft);text-align:center;outline:none;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:12px;cursor:text;border-radius:4px;padding:0 2px}
+#streaklabel:focus{overflow:visible;white-space:normal;background:var(--card)}
+#streaklabel:empty:before{content:attr(data-ph);color:var(--ink-soft);opacity:.55}
 #searchbtn,#fullbtn,#refreshbtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
 #searchbtn:hover,#fullbtn:hover,#refreshbtn:hover{background:var(--line);color:var(--ink)}
 #refreshbtn.spinning svg{animation:spin .5s linear}
@@ -535,6 +550,10 @@ body.selecting-items .item,body.selecting-items .itemlist,body.selecting-items .
       <button id="undobtn" title="undo (up to 2 days of history)"></button>
       <button id="redobtn" title="redo"></button>
       <span id="savestate"></span>
+      <div id="streakwrap" title="tap the flame to log a streak — hold it to set the number directly">
+        <button id="streakfire" type="button"><span class="flame">🔥</span><span id="streakcount">0</span></button>
+        <div id="streaklabel" contenteditable data-ph="name it"></div>
+      </div>
       <button id="gear" title="Settings"></button>
     </div>
   </div>
@@ -955,7 +974,7 @@ function defaultState(){
   const daily={id:uid(),name:"Daily Adventures",banner:{type:"gradient",value:"g1"},project:null,special:"ideas",sections:[defaultGrid()]};
   return{v:7,shareTitle:"My Planner",settings:{font:"Poppins",accent:"#f4a9b8",bg:"#fffdf9",theme:"light"},
     mains:[{id:uid(),name:"My Planner",subs:[daily]},{id:uid(),name:"Internship",subs:[newProjectSub("Example project")]}],
-    activeMain:null,activeSub:null,share:{on:false,subs:{}},
+    activeMain:null,activeSub:null,share:{on:false,subs:{}},streak:{count:0,label:""},
     ideas:{title:"Thrilling Ideas to Learn",groups:[{id:uid(),name:"Unsorted",items:[]}]}};
 }
 function tintFor(ink){const f=SECCOLORS.find(c=>c.ink===ink);return f?f.tint:null}
@@ -1392,6 +1411,7 @@ function fixActive(){
   let m=S.mains.find(x=>x.id===S.activeMain)||S.mains[0];S.activeMain=m.id;
   if(!m.subs.length)m.subs.push(newBlankSub());
   let sub=m.subs.find(x=>x.id===S.activeSub)||m.subs[0];S.activeSub=sub.id;
+  if(!S.streak)S.streak={count:0,label:""};
 }
 function applyTheme(){
   if(!S||!S.settings){document.documentElement.setAttribute("data-theme","light");return;}
@@ -1431,7 +1451,15 @@ function adjustColorsForTheme(root){
     }
   });
 }
-function renderAll(){renderNav();renderPage()}
+function renderAll(){renderNav();renderPage();renderStreak()}
+function renderStreak(){
+  if(!S||!S.streak)return;
+  const countEl=document.getElementById("streakcount");
+  if(countEl)countEl.textContent=S.streak.count||0;
+  const labelEl=document.getElementById("streaklabel");
+  /* never overwrite the label while the user is mid-edit in it — would reset their cursor */
+  if(labelEl&&document.activeElement!==labelEl)labelEl.textContent=S.streak.label||"";
+}
 function renderNav(){
   document.getElementById("addmain").innerHTML=icon("plus",16);
   document.getElementById("gear").innerHTML=icon("gear",17);
@@ -1800,6 +1828,14 @@ document.addEventListener("click",e=>{
 },true);
 /* internal clipboard for selected checklist items */
 let itemClipboard=[];
+/* whenever a REAL browser copy/cut happens (selecting some text with the mouse and hitting
+   ⌘C, or a right-click Copy) our own ⌘C/⌘X shortcut deliberately stays out of the way (see
+   the keydown handler below) and lets the browser do it natively. But itemClipboard from an
+   earlier, unrelated task-copy was otherwise left sitting there — so a later ⌘V would ignore
+   what you *just* copied and paste that old batch of tasks instead. Invalidate it the moment
+   a native copy/cut actually happens, so paste always reflects your most recent copy. */
+document.addEventListener("copy",()=>{itemClipboard=[]});
+document.addEventListener("cut",()=>{itemClipboard=[]});
 function itemsFromRows(rows){
   return rows.map(r=>{const it=byId[r.dataset.item];return it?JSON.parse(JSON.stringify(it)):null}).filter(Boolean);
 }
@@ -4108,6 +4144,50 @@ function applySlash(k,ctx){
   }
 }
 
+/* ================= streak flame ================= */
+(function(){
+  const fire=document.getElementById("streakfire");
+  const label=document.getElementById("streaklabel");
+  if(!fire||!label)return;
+  let pressTimer=null,longPressed=false;
+  const clearPress=()=>{clearTimeout(pressTimer);pressTimer=null};
+  fire.addEventListener("pointerdown",e=>{
+    if(viewer||!S)return;
+    longPressed=false;
+    clearPress();
+    pressTimer=setTimeout(()=>{longPressed=true;openStreakSetModal()},500);
+  });
+  fire.addEventListener("pointerup",clearPress);
+  fire.addEventListener("pointerleave",clearPress);
+  fire.addEventListener("pointercancel",clearPress);
+  fire.addEventListener("click",e=>{
+    if(viewer||!S)return;
+    if(longPressed){longPressed=false;return} /* the long-press already handled this press */
+    e.preventDefault();
+    if(!S.streak)S.streak={count:0,label:""};
+    S.streak.count=(S.streak.count||0)+1;
+    renderStreak();
+    fire.classList.remove("pop");void fire.offsetWidth;fire.classList.add("pop");
+    saveSoon();
+  });
+  label.addEventListener("input",()=>{if(!S||!S.streak)return;S.streak.label=label.textContent;saveTyping()});
+  label.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();label.blur()}});
+  function openStreakSetModal(){
+    const m=modal(`<h2>Set streak number</h2>
+      <input type="number" id="streaksetinput" value="${S.streak?S.streak.count||0:0}" style="width:100%;font-size:22px;text-align:center;padding:10px;border-radius:10px;border:1.5px solid var(--line);margin:10px 0;box-sizing:border-box">
+      <button class="cg-primary" id="streaksetgo">Set</button>`);
+    const inp=m.querySelector("#streaksetinput");
+    inp.focus();inp.select();
+    const go=()=>{
+      const v=parseInt(inp.value,10);
+      if(!S.streak)S.streak={count:0,label:""};
+      S.streak.count=isNaN(v)?0:v;
+      renderStreak();saveSoon();closeModal();
+    };
+    m.querySelector("#streaksetgo").onclick=go;
+    inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go()}});
+  }
+})();
 const ORIGINAL_PAGE_HTML=document.getElementById("page").innerHTML;
 load();
 </script>
