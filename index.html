@@ -883,6 +883,36 @@ function cloudSubscribeShare(id,onChange){
     })
     .subscribe();
 }
+/* live cross-device sync for your OWN planner (not just the public share): the moment
+   another logged-in device saves, push the new data straight into this tab — instead of
+   only ever picking up changes on the next full page load. */
+let ownPlannerChannel=null;
+function cloudSubscribeOwnPlanner(){
+  if(!supa||viewer)return null;
+  if(ownPlannerChannel)return ownPlannerChannel;
+  ownPlannerChannel=supa.channel("own-"+myPlannerId())
+    .on("postgres_changes",{event:"*",schema:"public",table:"planners",filter:"id=eq."+myPlannerId()},payload=>{
+      if(payload.new&&payload.new.data)applyRemotePlanner(payload.new.data);
+    })
+    .subscribe();
+  return ownPlannerChannel;
+}
+function applyRemotePlanner(remote){
+  if(viewer||!S)return;
+  /* a local edit is still mid-flight (not yet saved) — don't stomp on it */
+  if(saveTimer||cloudTimer)return;
+  /* the user is actively typing right now — don't yank the field out from under them */
+  const ae=document.activeElement;
+  if(ae&&(ae.isContentEditable||/INPUT|TEXTAREA/.test(ae.tagName)))return;
+  /* this is almost certainly just our own save echoing back — skip the redraw */
+  let same=false;
+  try{same=JSON.stringify(remote)===JSON.stringify(S)}catch(e){}
+  if(same)return;
+  S=migrateAny(remote);
+  if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
+  fixActive();applyTheme();renderAll();markSaving("saved");
+  try{store.set(KEY,JSON.stringify(S))}catch(e){}
+}
 const ROW_PX=27, DESKTOP_ROWS=10, MOBILE_ROWS=6;
 const isMobile=()=>matchMedia("(max-width:560px)").matches;
 const maxCellPx=()=>(isMobile()?MOBILE_ROWS:DESKTOP_ROWS)*ROW_PX;
@@ -1129,7 +1159,7 @@ function applyHistory(){
   requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));
   store.set(KEY,JSON.stringify(S)).catch(()=>{});
   persistHistory();
-  clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudSavePlanner().catch(()=>{});if(S.share.on)publishShared().catch(()=>{})},1500);
+  clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudSavePlanner().catch(()=>{});if(S.share.on)publishShared().catch(()=>{})},400);
   updateUndoButtons();markSaving("saved");
   setTimeout(()=>restoring=false,30);
 }
@@ -1164,9 +1194,9 @@ async function saveNow(){
   cloudTimer=setTimeout(()=>{
     cloudSavePlanner().catch(()=>{});
     if(S.share.on){publishShared().catch(()=>{});}
-  },1500);
+  },400);
 }
-/* saveSoon/saveTyping debounce local save by 900ms and the cloud upload by another 1500ms —
+/* saveSoon/saveTyping debounce local save by 900ms and the cloud upload by another 400ms —
    fine while the tab stays open, but if a phone gets locked or the app/tab gets closed right
    after typing, those timers never get to fire and the edit never reaches the cloud (so it
    never shows up on another device). Flush everything immediately the moment the page is
@@ -1258,6 +1288,7 @@ async function load(){
   else{S=defaultState()}
   if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
   fixActive();applyTheme();renderAll();markSaving("saved");
+  if(supa)cloudSubscribeOwnPlanner();
   try{document.execCommand("styleWithCSS",false,true)}catch(e){}
   await loadHistory();
   loadVersions();
