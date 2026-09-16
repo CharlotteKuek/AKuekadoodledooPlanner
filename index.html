@@ -95,21 +95,31 @@ img{max-width:100%}
 #undobtn,#redobtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
 #undobtn:hover,#redobtn:hover{background:var(--line);color:var(--ink)}
 #undobtn:disabled,#redobtn:disabled{opacity:.28;cursor:default}
-#streakwrap{display:flex;flex-direction:column;align-items:center;gap:0;user-select:none}
-#streakfire{display:flex;align-items:center;gap:3px;padding:3px 7px;border-radius:10px;line-height:1;background:transparent}
+.ideas-streak-row{display:flex;align-items:stretch;gap:14px;margin-bottom:30px}
+.ideas-streak-row #ideaslaunch{flex:1;width:auto;margin-bottom:0;min-width:0}
+#streakbox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 18px;user-select:none;flex-shrink:0}
+.streak-row{display:flex;align-items:center;gap:10px}
+.streak-arrow{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;color:var(--ink-soft);flex-shrink:0}
+.streak-arrow:hover{background:var(--line);color:var(--ink)}
+.streak-arrow:active{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+#streakfire{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1;padding:2px 8px;border-radius:10px;background:transparent}
 #streakfire:hover{background:var(--line)}
-#streakfire .flame{font-size:17px;display:inline-block;transform-origin:60% 90%}
+#streakfire .flame{font-size:36px;display:inline-block;transform-origin:60% 90%}
 #streakfire.pop .flame{animation:streakpop .5s ease}
 @keyframes streakpop{
   0%{transform:scale(1) translateY(0) rotate(0)}
-  30%{transform:scale(1.4) translateY(-7px) rotate(-10deg)}
+  30%{transform:scale(1.4) translateY(-9px) rotate(-10deg)}
   55%{transform:scale(.92) translateY(1px) rotate(7deg)}
   100%{transform:scale(1) translateY(0) rotate(0)}
 }
-#streakcount{font-size:13px;font-weight:800;color:var(--ink)}
-#streaklabel{font-size:10px;color:var(--ink-soft);text-align:center;outline:none;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:12px;cursor:text;border-radius:4px;padding:0 2px}
-#streaklabel:focus{overflow:visible;white-space:normal;background:var(--card)}
+#streakcount{font-size:23px;font-weight:800;color:var(--ink)}
+#streaklabel{font-size:12.5px;color:var(--ink-soft);text-align:center;outline:none;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:15px;cursor:text;border-radius:4px;padding:0 3px;margin-top:2px}
+#streaklabel:focus{overflow:visible;white-space:normal;background:var(--bg)}
 #streaklabel:empty:before{content:attr(data-ph);color:var(--ink-soft);opacity:.55}
+@media(max-width:560px){
+  .ideas-streak-row{flex-wrap:wrap}
+  #streakbox{padding:8px 14px}
+}
 #searchbtn,#fullbtn,#refreshbtn{padding:6px;border-radius:8px;color:var(--ink-soft)}
 #searchbtn:hover,#fullbtn:hover,#refreshbtn:hover{background:var(--line);color:var(--ink)}
 #refreshbtn.spinning svg{animation:spin .5s linear}
@@ -550,10 +560,6 @@ body.selecting-items .item,body.selecting-items .itemlist,body.selecting-items .
       <button id="undobtn" title="undo (up to 2 days of history)"></button>
       <button id="redobtn" title="redo"></button>
       <span id="savestate"></span>
-      <div id="streakwrap" title="tap the flame to log a streak — hold it to set the number directly">
-        <button id="streakfire" type="button"><span class="flame">🔥</span><span id="streakcount">0</span></button>
-        <div id="streaklabel" contenteditable data-ph="name it"></div>
-      </div>
       <button id="gear" title="Settings"></button>
     </div>
   </div>
@@ -1585,9 +1591,22 @@ function renderPage(){
   subEl.style.display="block";
   addsec.style.display="";
   if(sub.special==="ideas"){
+    const row=document.createElement("div");row.className="ideas-streak-row";
     const b=document.createElement("button");b.id="ideaslaunch";
     b.innerHTML=`<span class="spark">${icon("bulb",19)}</span><span><div class="t">${escHtml(S.ideas.title)}</div><div class="s">click to open</div></span><span class="go">${icon("chevR",17)}</span>`;
-    root.appendChild(b);
+    row.appendChild(b);
+    if(!S.streak)S.streak={count:0,label:""};
+    const streak=document.createElement("div");streak.id="streakbox";
+    streak.innerHTML=`<div class="streak-row">
+      <button class="streak-arrow" data-streakdown title="decrease">${icon("chevD",22)}</button>
+      <button id="streakfire" data-streakfire title="tap to log — hold to set the number directly">
+        <span class="flame">🔥</span><span id="streakcount">${S.streak.count||0}</span>
+      </button>
+      <button class="streak-arrow" data-streakup title="increase">${icon("chevU",22)}</button>
+    </div>
+    <div id="streaklabel" contenteditable data-sync="streaklabel" data-ph="name it">${escHtml(S.streak.label||"")}</div>`;
+    row.appendChild(streak);
+    root.appendChild(row);
   }
   sub.sections.forEach(sec=>{byId[sec.id]=sec;root.appendChild(renderSection(sec))});
   restoreFocus();
@@ -2318,6 +2337,7 @@ document.addEventListener("input",e=>{
   if(el){
     const[kind,id]=el.dataset.sync.split(":");
     if(kind==="ideasnotes"){pendingSerialize={kind:"ideasnotes",el};saveTyping();return}
+    if(kind==="streaklabel"){if(S&&S.streak)S.streak.label=el.textContent;saveTyping();return}
     const o=byId[id];
     if(o){
       /* store lightweight values immediately; defer heavy clone-based serialization to save time */
@@ -4144,50 +4164,57 @@ function applySlash(k,ctx){
   }
 }
 
-/* ================= streak flame ================= */
-(function(){
-  const fire=document.getElementById("streakfire");
-  const label=document.getElementById("streaklabel");
-  if(!fire||!label)return;
-  let pressTimer=null,longPressed=false;
-  const clearPress=()=>{clearTimeout(pressTimer);pressTimer=null};
-  fire.addEventListener("pointerdown",e=>{
-    if(viewer||!S)return;
-    longPressed=false;
-    clearPress();
-    pressTimer=setTimeout(()=>{longPressed=true;openStreakSetModal()},500);
-  });
-  fire.addEventListener("pointerup",clearPress);
-  fire.addEventListener("pointerleave",clearPress);
-  fire.addEventListener("pointercancel",clearPress);
-  fire.addEventListener("click",e=>{
-    if(viewer||!S)return;
-    if(longPressed){longPressed=false;return} /* the long-press already handled this press */
+/* ================= streak flame =================
+   Lives inside the (frequently rebuilt) page content, not the static toolbar, so all of its
+   interactions are delegated on document rather than bound to the element directly — a
+   direct binding would go stale the next time the page re-renders and recreates the node. */
+let streakPressTimer=null,streakLongPressed=false;
+function openStreakSetModal(){
+  if(!S)return;
+  if(!S.streak)S.streak={count:0,label:""};
+  const m=modal(`<h2>Set streak number</h2>
+    <input type="number" id="streaksetinput" value="${S.streak.count||0}" style="width:100%;font-size:22px;text-align:center;padding:10px;border-radius:10px;border:1.5px solid var(--line);margin:10px 0;box-sizing:border-box">
+    <button class="cg-primary" id="streaksetgo">Set</button>`);
+  const inp=m.querySelector("#streaksetinput");
+  inp.focus();inp.select();
+  const go=()=>{
+    const v=parseInt(inp.value,10);
+    S.streak.count=isNaN(v)?0:Math.max(0,v);
+    renderStreak();saveSoon();closeModal();
+  };
+  m.querySelector("#streaksetgo").onclick=go;
+  inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go()}});
+}
+document.addEventListener("pointerdown",e=>{
+  const fire=e.target.closest?e.target.closest("[data-streakfire]"):null;
+  if(!fire||viewer||!S)return;
+  streakLongPressed=false;
+  clearTimeout(streakPressTimer);
+  streakPressTimer=setTimeout(()=>{streakLongPressed=true;openStreakSetModal()},500);
+});
+document.addEventListener("pointerup",()=>clearTimeout(streakPressTimer));
+document.addEventListener("pointercancel",()=>clearTimeout(streakPressTimer));
+document.addEventListener("click",e=>{
+  if(viewer||!S)return;
+  const fire=e.target.closest?e.target.closest("[data-streakfire]"):null;
+  if(fire){
+    if(streakLongPressed){streakLongPressed=false;return} /* the long-press already handled this press */
     e.preventDefault();
     if(!S.streak)S.streak={count:0,label:""};
     S.streak.count=(S.streak.count||0)+1;
     renderStreak();
     fire.classList.remove("pop");void fire.offsetWidth;fire.classList.add("pop");
     saveSoon();
-  });
-  label.addEventListener("input",()=>{if(!S||!S.streak)return;S.streak.label=label.textContent;saveTyping()});
-  label.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();label.blur()}});
-  function openStreakSetModal(){
-    const m=modal(`<h2>Set streak number</h2>
-      <input type="number" id="streaksetinput" value="${S.streak?S.streak.count||0:0}" style="width:100%;font-size:22px;text-align:center;padding:10px;border-radius:10px;border:1.5px solid var(--line);margin:10px 0;box-sizing:border-box">
-      <button class="cg-primary" id="streaksetgo">Set</button>`);
-    const inp=m.querySelector("#streaksetinput");
-    inp.focus();inp.select();
-    const go=()=>{
-      const v=parseInt(inp.value,10);
-      if(!S.streak)S.streak={count:0,label:""};
-      S.streak.count=isNaN(v)?0:v;
-      renderStreak();saveSoon();closeModal();
-    };
-    m.querySelector("#streaksetgo").onclick=go;
-    inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go()}});
+    return;
   }
-})();
+  const up=e.target.closest?e.target.closest("[data-streakup]"):null;
+  if(up){if(!S.streak)S.streak={count:0,label:""};S.streak.count=(S.streak.count||0)+1;renderStreak();saveSoon();return}
+  const down=e.target.closest?e.target.closest("[data-streakdown]"):null;
+  if(down){if(!S.streak)S.streak={count:0,label:""};S.streak.count=Math.max(0,(S.streak.count||0)-1);renderStreak();saveSoon();return}
+});
+document.addEventListener("keydown",e=>{
+  if(e.target&&e.target.id==="streaklabel"&&e.key==="Enter"){e.preventDefault();e.target.blur()}
+});
 const ORIGINAL_PAGE_HTML=document.getElementById("page").innerHTML;
 load();
 </script>
