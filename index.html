@@ -1776,10 +1776,16 @@ document.addEventListener("pointerup",()=>{
 document.addEventListener("click",e=>{
   if(itemJustDragged){e.stopPropagation();e.preventDefault();}
 },true);
-/* ---- mobile: long-press an item, then keep dragging to select a range (no scroll) ---- */
+/* ---- mobile: long-press an item, then keep dragging to select a range (no scroll) ----
+   Touch-only by design. Without the pointerType guard below, this used to also arm on an
+   ordinary mouse/trackpad click — so simply clicking near a checkbox and pausing there for
+   over a third of a second (e.g. carefully aiming the caret) would silently blur the field,
+   enter selection mode, and start swallowing the next click instead of placing the caret —
+   making it look like you could no longer click into that line to type at all. */
 let selectMode=false,lpTimer=null,lpRow=null,lpX=0,lpY=0,lpPointerId=null,dragSelecting=false;
 document.addEventListener("pointerdown",e=>{
   if(viewer)return;
+  if(e.pointerType!=="touch")return;
   const row=e.target.closest?e.target.closest(".item"):null;
   if(!row){return}
   if(e.target.closest(".itemgrip")||e.target.closest(".box")||e.target.closest(".addbtn")||e.target.closest(".expand"))return;
