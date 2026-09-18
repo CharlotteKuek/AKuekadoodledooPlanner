@@ -1718,6 +1718,7 @@ function selectRange(container,anchorId,toRow){
   const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
   return true;
 }
+let mdX=0,mdY=0;
 document.addEventListener("mousedown",e=>{
   if(viewer)return;
   const row=e.target.closest?e.target.closest(".item"):null;
@@ -1728,7 +1729,7 @@ document.addEventListener("mousedown",e=>{
     return;
   }
   /* clicking a row sets it as the anchor (but don't clear a fresh drag-selection) */
-  if(row){itemSelAnchor=row.dataset.item;if(!itemJustDragged){clearItemSel();hideDelSelBar();}}
+  if(row){itemSelAnchor=row.dataset.item;mdX=e.clientX;mdY=e.clientY;if(!itemJustDragged){clearItemSel();hideDelSelBar();}}
   else if(!e.target.closest("#delselbar")){clearItemSel();hideDelSelBar();}
 });
 /* drag across items (on the marker/empty area) to select a range */
@@ -1749,6 +1750,14 @@ document.addEventListener("pointermove",e=>{
   const container=row.parentElement;
   const anchorRow=container.querySelector(`.item[data-item="${itemSelAnchor}"]`);
   if(!anchorRow)return; /* anchor is in a different list */
+  if(!itemDragSel){
+    /* require a real drag before arming this — otherwise an ordinary click that lands on a
+       DIFFERENT (e.g. just-created) row a few pixels from where the mouse went down — the
+       tiny wobble a trackpad click/press very commonly has — would immediately count as
+       "dragging onto that row", select it, and block the caret from ever landing there */
+    const dx=e.clientX-mdX,dy=e.clientY-mdY;
+    if(dx*dx+dy*dy<36)return; /* under ~6px moved — still just a click, not a drag */
+  }
   if(row===anchorRow&&!itemDragSel)return;
   /* we've moved onto a different row → begin/continue a drag selection */
   e.preventDefault();
