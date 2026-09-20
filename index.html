@@ -1808,28 +1808,30 @@ document.addEventListener("pointerdown",e=>{
     const s=window.getSelection&&window.getSelection();if(s&&s.removeAllRanges)s.removeAllRanges();
     selectedIds.add(row.dataset.item);applySelClasses();
     itemSelAnchor=row.dataset.item;
-    /* lock scrolling on the list so the finger-drag selects instead of scrolls */
     document.body.classList.add("selecting-items");
     if(navigator.vibrate)navigator.vibrate(18);
     updateDelSelBar();
+    /* holding picks the task up: keep moving the finger and it (or the whole selection, if
+       several are selected) follows — reorder logic lives in the drag-reorder section below */
+    const selRows=[...document.querySelectorAll(".item.item-sel")];
+    const group=selRows.length>1?selRows:[row];
+    group.forEach(r=>r.classList.add("dragging"));
+    drag={row,group,container:row.parentElement,kind:"item",moved:false,fromHold:true,startX:lpX,startY:lpY};
+    try{document.body.setPointerCapture(lpPointerId)}catch(_){}
   },350);
 });
-/* while dragging after a long-press, extend the selection to whatever item is under the finger */
+/* while a hold-drag is active the drag-reorder handler moves the task; here we only make
+   sure the browser doesn't also treat the finger movement as a page scroll */
 document.addEventListener("pointermove",e=>{
-  if(dragSelecting){
-    e.preventDefault();
-    const el=document.elementFromPoint(e.clientX,e.clientY);
-    const row=el&&el.closest?el.closest(".item"):null;
-    if(row&&itemSelAnchor){
-      const container=row.parentElement;
-      if(container.querySelector(`.item[data-item="${itemSelAnchor}"]`)){
-        selectRange(container,itemSelAnchor,row);updateDelSelBar();
-      }
-    }
-    return;
-  }
-  /* not yet in drag-select: cancel the pending long-press if the finger moves away */
+  if(dragSelecting){e.preventDefault();return}
+  /* not yet held long enough: cancel the pending long-press if the finger moves away */
   if(lpTimer&&(Math.abs(e.clientX-lpX)>10||Math.abs(e.clientY-lpY)>10))clearTimeout(lpTimer);
+},{passive:false});
+/* pointer events can't stop scrolling — only a non-passive touchmove preventDefault can.
+   (touch-action is fixed when the finger first lands, so the CSS class added 350ms later
+   is too late on phones; without this the whole page scrolls instead of the task moving) */
+document.addEventListener("touchmove",e=>{
+  if(dragSelecting||(drag&&drag.fromHold)){if(e.cancelable)e.preventDefault()}
 },{passive:false});
 document.addEventListener("pointerup",()=>{
   clearTimeout(lpTimer);
@@ -1837,7 +1839,8 @@ document.addEventListener("pointerup",()=>{
 });
 document.addEventListener("pointercancel",()=>{
   clearTimeout(lpTimer);
-  if(dragSelecting){dragSelecting=false;document.body.classList.remove("selecting-items");}
+  if(dragSelecting){dragSelecting=false;document.body.classList.remove("selecting-items")}
+  if(drag&&drag.fromHold){(drag.group||[drag.row]).forEach(r=>r.classList.remove("dragging"));drag=null;renderPage()}
 });
 /* in select mode: tap an item to toggle it; tap anywhere else to exit & deselect */
 document.addEventListener("click",e=>{
@@ -2691,7 +2694,12 @@ document.addEventListener("pointerdown",e=>{
   h.setPointerCapture(e.pointerId);
 });
 document.addEventListener("pointermove",e=>{
-  if(!drag)return;drag.moved=true;
+  if(!drag)return;
+  if(drag.fromHold&&!drag.moved){
+    const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
+    if(dx*dx+dy*dy<64)return; /* finger just wobbled while holding — still a plain hold-to-select */
+  }
+  drag.moved=true;
   /* items can move BETWEEN lists (e.g. Monday -> Tuesday); other kinds stay in their container */
   if(drag.kind==="item"){
     const hit=document.elementFromPoint(e.clientX,e.clientY);
@@ -2737,6 +2745,7 @@ document.addEventListener("pointerup",()=>{
         arr.length=0;nu.forEach(i=>arr.push(i));
       });
     }
+    if(drag.fromHold){clearItemSel();selectMode=false;hideDelSelBar()}
     renderPage();saveSoon();
   }
   drag=null;
