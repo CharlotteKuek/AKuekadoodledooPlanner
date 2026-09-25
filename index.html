@@ -37,7 +37,7 @@ window.SUPA_KEY="sb_publishable_ZoCf6UvT8hLDSUb_yLE_7A_8-r0QJN1";
   --field:#26242e; --tbl-border:#3a3742;
 }
 [data-theme="dark"] .maintab.active{color:#1b1a20}
-[data-theme="dark"] #tablebar,[data-theme="dark"] #imgbar,[data-theme="dark"] #linkbox,[data-theme="dark"] .menu,[data-theme="dark"] .palette,[data-theme="dark"] .fmenu,[data-theme="dark"] .modal,[data-theme="dark"] .swatches{background:#26242e;color:var(--ink)}
+[data-theme="dark"] #tablebar,[data-theme="dark"] #imgbar,[data-theme="dark"] #linkbox,[data-theme="dark"] #linkpop,[data-theme="dark"] .menu,[data-theme="dark"] .palette,[data-theme="dark"] .fmenu,[data-theme="dark"] .modal,[data-theme="dark"] .swatches{background:#26242e;color:var(--ink)}
 [data-theme="dark"] .modal input[type=text],[data-theme="dark"] #linkbox input,[data-theme="dark"] .modal select{background:var(--field);color:var(--ink)}
 [data-theme="dark"] .item .box,[data-theme="dark"] .richnote .ck:not(:checked){background:rgba(255,255,255,.07)}
 [data-theme="dark"] .tasks-body .item .box,[data-theme="dark"] .richnote .ck:not(:checked){border-color:rgba(255,255,255,.4)}
@@ -447,6 +447,10 @@ body.resizing-cell *{touch-action:none}
 #linkbox{position:fixed;z-index:80;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:10px;display:flex;gap:6px}
 #linkbox input{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:13.5px;width:230px;font-family:inherit}
 #linkbox button{background:var(--accent);color:#fff;border-radius:8px;padding:6px 12px;font-weight:700;font-size:13px}
+#linkpop{position:fixed;z-index:81;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px 8px;display:flex;align-items:center;gap:6px;max-width:min(420px,92vw);font-size:13px}
+#linkpop .lp-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:normal;font-weight:600;padding:2px 4px}
+#linkpop button{font-size:12px;font-weight:700;color:var(--ink-soft);padding:3px 8px;border-radius:7px;border:1px solid var(--line);flex:none}
+#linkpop button:hover{background:var(--line);color:var(--ink)}
 .menu{position:fixed;z-index:80;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:5px;min-width:150px}
 .menu button{display:flex;width:100%;text-align:left;padding:8px 11px;border-radius:8px;font-size:13.5px;font-weight:600}
 .menu button:hover{background:var(--line)}
@@ -499,6 +503,7 @@ body.selecting-items .item,body.selecting-items .itemlist,body.selecting-items .
 #creditegg .socials .li{background:#0a66c2}#creditegg .socials .tg{background:#2aabee}#creditegg .socials .ig{background:radial-gradient(circle at 30% 110%,#fdd551,#fd5,#ff543e 40%,#c837ab 70%)}
 #viewerbar button{color:#fff;text-decoration:underline;font-size:13px;margin-left:8px}
 .ro [contenteditable]{pointer-events:none}
+.ro [contenteditable] a[href]{pointer-events:auto}
 .credit{margin-top:64px;text-align:center;padding:34px 10px 6px;border-top:1px solid var(--line)}
 .credit img{width:74px;height:auto;margin:0 auto 12px;display:block;opacity:.92}
 .credit p{font-family:inherit;font-size:12px;line-height:1.65;color:var(--ink-soft);max-width:340px;margin:0 auto}
@@ -3146,22 +3151,84 @@ function fontPicker(getCur,onPick,label){
   wrap.appendChild(btn);return wrap;
 }
 document.getElementById("linkbtn").addEventListener("mousedown",e=>{e.preventDefault();savedRange=getRange();openLinkBox()});
-function openLinkBox(){
-  closeLinkBox();const b=document.createElement("div");b.id="linkbox";
-  b.innerHTML=`<input type="url" placeholder="https://"><button>add</button>`;document.body.appendChild(b);
-  const r=document.getElementById("linkbtn").getBoundingClientRect();b.style.left=Math.min(r.left,innerWidth-320)+"px";b.style.top=(r.bottom+6)+"px";
-  const inp=b.querySelector("input");inp.focus();
-  const go=()=>{let u=inp.value.trim();if(!u){closeLinkBox();return}if(!/^https?:\/\//i.test(u))u="https://"+u;
-    if(savedRange){const s=getSelection();s.removeAllRanges();s.addRange(savedRange);
-      if(savedRange.collapsed)document.execCommand("insertHTML",false,`<a href="${u}" target="_blank">${u}</a>`);else document.execCommand("createLink",false,u);
-      document.querySelectorAll('[data-sync] a,#noteedit a').forEach(a=>a.target="_blank");syncFocusedEditable()}
+function linkHostOf(node){if(node&&node.nodeType===3)node=node.parentElement;return node&&node.closest?node.closest("[data-sync],#noteedit,[contenteditable=true]"):null}
+function linkAt(node){if(node&&node.nodeType===3)node=node.parentElement;return node&&node.closest?node.closest("a[href]"):null}
+function normUrl(u){u=u.trim();if(!u)return"";if(!/^(https?:|mailto:|tel:)/i.test(u))u="https://"+u;return u}
+/* opens the "add link" box. Positioned under the toolbar button, or under the selection
+   when called from ⌘K. If the caret/selection is inside an existing link, the box edits it. */
+function openLinkBox(opts){
+  opts=opts||{};
+  closeLinkBox();closeLinkPop();
+  const range=savedRange;
+  const host=range?linkHostOf(range.startContainer):null;
+  if(!host||!host.isContentEditable){return}
+  const existing=opts.anchor||(range?linkAt(range.startContainer)||linkAt(range.endContainer):null);
+  const b=document.createElement("div");b.id="linkbox";
+  b.innerHTML=`<input type="url" placeholder="paste or type a link, then Enter"><button>${existing?"save":"add"}</button>`;document.body.appendChild(b);
+  let r=null;
+  if(opts.nearSelection||opts.anchor){r=(opts.anchor||range).getBoundingClientRect();if(!r||(!r.width&&!r.height))r=host.getBoundingClientRect()}
+  else r=document.getElementById("linkbtn").getBoundingClientRect();
+  b.style.left=Math.max(8,Math.min(r.left,innerWidth-320))+"px";
+  const top=r.bottom+6;b.style.top=(top+50>innerHeight?Math.max(8,r.top-50):top)+"px";
+  const inp=b.querySelector("input");if(existing)inp.value=existing.getAttribute("href")||"";inp.focus();inp.select();
+  const go=()=>{const u=normUrl(inp.value);if(!u){closeLinkBox();host.focus();return}
+    if(existing){existing.setAttribute("href",u);existing.target="_blank";existing.rel="noopener";host.focus()}
+    else{
+      host.focus();const s=getSelection();s.removeAllRanges();s.addRange(range);
+      const esc=u.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+      if(range.collapsed)document.execCommand("insertHTML",false,`<a href="${esc}" target="_blank" rel="noopener">${esc}</a>`);
+      else document.execCommand("createLink",false,u);
+      host.querySelectorAll("a[href]").forEach(a=>{a.target="_blank";a.rel="noopener"});
+      /* put the caret just after the new link so further typing isn't part of it */
+      const s2=getSelection();if(s2.rangeCount){const rr=s2.getRangeAt(0);rr.collapse(false);s2.removeAllRanges();s2.addRange(rr)}
+    }
+    host.dispatchEvent(new Event("input",{bubbles:true}));
     closeLinkBox()};
   b.querySelector("button").onclick=go;
-  inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go()}if(e.key==="Escape")closeLinkBox()});
+  inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go()}if(e.key==="Escape"){e.preventDefault();closeLinkBox();host.focus();if(range){const s=getSelection();s.removeAllRanges();s.addRange(range)}}});
 }
 function closeLinkBox(){const b=document.getElementById("linkbox");if(b)b.remove()}
 document.addEventListener("click",e=>{if(!e.target.closest("#linkbox")&&!e.target.closest("#linkbtn"))closeLinkBox()});
 document.addEventListener("click",e=>{const a=e.target.closest("[contenteditable] a, .ro a");if(a&&(e.metaKey||e.ctrlKey||(document.activeElement&&!document.activeElement.isContentEditable))){e.preventDefault();window.open(a.href,"_blank")}});
+/* ---- hover card on links: shows where it goes, with open / edit / remove ---- */
+let linkPopTimer=null,linkPopFor=null;
+function closeLinkPop(){clearTimeout(linkPopTimer);const p=document.getElementById("linkpop");if(p)p.remove();linkPopFor=null}
+function showLinkPop(a){
+  if(linkPopFor===a&&document.getElementById("linkpop"))return;
+  closeLinkPop();linkPopFor=a;
+  const editable=a.isContentEditable&&!a.closest(".ro")&&!viewer;
+  const p=document.createElement("div");p.id="linkpop";
+  const href=a.getAttribute("href")||"";
+  const openA=document.createElement("a");openA.href=a.href;openA.target="_blank";openA.rel="noopener";openA.className="lp-url";openA.textContent=href.replace(/^https?:\/\//i,"");openA.title="open "+href;
+  p.appendChild(openA);
+  if(editable){
+    const ed=document.createElement("button");ed.textContent="edit";
+    ed.onclick=ev=>{ev.stopPropagation();const r=document.createRange();r.selectNodeContents(a);savedRange=r;openLinkBox({anchor:a})};
+    const rm=document.createElement("button");rm.textContent="remove";
+    rm.onclick=ev=>{ev.stopPropagation();const host=linkHostOf(a);const par=a.parentNode;while(a.firstChild)par.insertBefore(a.firstChild,a);par.removeChild(a);closeLinkPop();if(host)host.dispatchEvent(new Event("input",{bubbles:true}))};
+    p.appendChild(ed);p.appendChild(rm);
+  }
+  p.addEventListener("mousedown",ev=>{if(ev.target.tagName==="BUTTON")ev.preventDefault()});
+  p.addEventListener("mouseenter",()=>clearTimeout(linkPopTimer));
+  p.addEventListener("mouseleave",()=>{linkPopTimer=setTimeout(closeLinkPop,250)});
+  document.body.appendChild(p);
+  const r=a.getBoundingClientRect(),pw=p.offsetWidth,ph=p.offsetHeight;
+  p.style.left=Math.max(8,Math.min(r.left,innerWidth-pw-8))+"px";
+  p.style.top=(r.bottom+4+ph>innerHeight?r.top-ph-4:r.bottom+4)+"px";
+}
+document.addEventListener("mouseover",e=>{
+  const a=e.target.closest?e.target.closest("[contenteditable] a[href], .ro a[href], .richnote a[href]"):null;
+  if(a){clearTimeout(linkPopTimer);linkPopTimer=setTimeout(()=>showLinkPop(a),150);return}
+  if(e.target.closest&&e.target.closest("#linkpop"))return;
+  if(linkPopFor){clearTimeout(linkPopTimer);linkPopTimer=setTimeout(closeLinkPop,300)}
+});
+/* tapping a link (touch) or putting the caret in one shows the card too */
+document.addEventListener("click",e=>{
+  if(e.target.closest&&e.target.closest("#linkpop"))return;
+  const a=e.target.closest?e.target.closest("[contenteditable] a[href], .ro a[href]"):null;
+  if(a&&!e.metaKey&&!e.ctrlKey)showLinkPop(a);else if(!a)closeLinkPop();
+});
+document.addEventListener("scroll",()=>{if(linkPopFor)closeLinkPop()},true);
 /* ================= images ================= */
 function compressImage(file,cb){
   const rd=new FileReader();
@@ -4083,7 +4150,14 @@ async function doRefresh(){
   if(btn)setTimeout(()=>btn.classList.remove("spinning"),500);
 }
 document.addEventListener("keydown",e=>{
-  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openSearch()}
+  /* ⌘K / Ctrl+K: while typing in a task or note it adds a link (like other editors);
+     anywhere else it still opens search */
+  if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==="k"){
+    e.preventDefault();
+    const ae=document.activeElement;
+    if(ae&&ae.isContentEditable&&!viewer){savedRange=getRange();openLinkBox({nearSelection:true})}
+    else openSearch();
+  }
   /* strikethrough: Cmd/Ctrl+Shift+X (works inside any editable) */
   if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==="x"){
     const a=document.activeElement;
