@@ -941,8 +941,10 @@ function applyRemotePlanner(remote){
   S=migrateAny(remote);
   if(S&&S.settings&&!S.settings.theme)S.settings.theme="light";
   dirty=false;
+  const repaired=repairData();
   fixActive();applyTheme();renderAll();markSaving("saved");
   try{store.set(KEY,JSON.stringify(S))}catch(e){}
+  if(repaired)saveSoon();
 }
 const ROW_PX=27, DESKTOP_ROWS=10, MOBILE_ROWS=6;
 const isMobile=()=>matchMedia("(max-width:560px)").matches;
@@ -1885,6 +1887,48 @@ function itemsFromRows(rows){
 }
 /* strip any inline background colour (e.g. the pastel day-cell colour a task was sitting in)
    before it can be carried onto another cell/section via copy, cut or paste */
+/* A task line is ONE line of inline text. When text is copied by mouse-selecting across
+   several tasks, the browser copies the planner's own row markup too (grip, checkbox, the
+   editable box itself — with the SAME data-sync id as the original). Pasted into another
+   task, that nested copy confused every lookup by id: Enter would land the new line in the
+   wrong place (no caret), paste/drag would target the hidden copy, etc. Pasting from Docs or
+   websites similarly brings <div>/<p> wrappers. These helpers flatten such HTML into clean
+   separate lines, so each can become its own task. */
+const LINE_BLOCKS="div,p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,ul,ol,tr,section,article,header,footer";
+function stripPlannerChrome(root){
+  root.querySelectorAll("meta,style,title,link,script,.draghandle,.itemgrip,.addbtn,.expand,.box,.blt,.cell-clear,.colordot,button").forEach(n=>n.remove());
+  root.querySelectorAll("[data-sync],[data-item],[data-dragrow]").forEach(el=>{
+    el.removeAttribute("data-sync");el.removeAttribute("data-item");el.removeAttribute("data-dragrow");el.removeAttribute("data-indent");el.removeAttribute("data-ph");
+    el.removeAttribute("contenteditable");el.classList.remove("item","txt","rich-host","done");if(!el.className)el.removeAttribute("class");
+  });
+  root.querySelectorAll("[style]").forEach(el=>{
+    el.style.removeProperty("background");el.style.removeProperty("background-color");
+    if(!el.getAttribute("style"))el.removeAttribute("style");
+  });
+  root.querySelectorAll("[bgcolor]").forEach(el=>el.removeAttribute("bgcolor"));
+}
+function lineHasContent(html){const d=document.createElement("div");d.innerHTML=html;return d.textContent.replace(/[​\s]/g,"")!==""||!!d.querySelector("img")}
+/* html → array of clean inline-only line strings (empty lines dropped) */
+function htmlToLines(html){
+  const tmp=document.createElement("div");tmp.innerHTML=html||"";
+  stripPlannerChrome(tmp);
+  tmp.querySelectorAll("svg").forEach(n=>n.remove());
+  if(tmp.querySelector("table"))return [tmp.innerHTML]; /* tables stay as they are */
+  const lines=[];let cur=document.createElement("div");
+  const flush=()=>{if(lineHasContent(cur.innerHTML))lines.push(cur.innerHTML.trim());cur=document.createElement("div")};
+  const walk=node=>{
+    [...node.childNodes].forEach(ch=>{
+      if(ch.nodeType===1&&ch.matches(LINE_BLOCKS)){flush();walk(ch);flush()}
+      else if(ch.nodeType===1&&ch.tagName==="BR"){flush()}
+      else if(ch.nodeType===1&&ch.querySelector(LINE_BLOCKS+",br")){walk(ch)}
+      else if(ch.nodeType===1||ch.nodeType===3)cur.appendChild(ch.cloneNode(true));
+    });
+  };
+  walk(tmp);flush();
+  return lines;
+}
+/* does this stored task html contain block wrappers / pasted planner rows that need flattening? */
+function itemHtmlNeedsRepair(html){return !!html&&/<(div|p|li|h[1-6]|ul|ol|blockquote|pre|section|article)\b|data-sync=|contenteditable/i.test(html)&&!/<table\b/i.test(html)}
 function stripBgHtml(html){
   if(!html)return html;
   const tmp=document.createElement("div");tmp.innerHTML=html;
@@ -2308,25 +2352,37 @@ function repairData(){
   if(!S)return false;
   let changed=false;
   const seen=new Set();
+  const fixId=o=>{if(!o||!o.id)return;if(seen.has(o.id)){o.id=uid();changed=true}seen.add(o.id)};
   const fixItems=(arr)=>{
     if(!Array.isArray(arr))return;
+    const out=[];
     arr.forEach(it=>{
-      if(!it||!it.id)return;
-      if(seen.has(it.id)){it.id=uid();changed=true}
-      seen.add(it.id);
+      if(!it)return;
+      /* a task holding pasted row markup or <div>/<p> blocks → split into one task per line */
+      if(itemHtmlNeedsRepair(it.html)){
+        const lines=htmlToLines(it.html);changed=true;
+        it.html=lines[0]||"";out.push(it);
+        lines.slice(1).forEach(l=>{const ni=newItem(it.kind==="header"?"text":it.kind);ni.indent=it.indent||0;ni.html=l;out.push(ni)});
+      }else out.push(it);
     });
+    if(out.length!==arr.length){arr.length=0;out.forEach(x=>arr.push(x))}
+    arr.forEach(fixId);
   };
+  const fixSec=sec=>{if(sec&&sec.id)fixId(sec)};
   const fixCell=(c)=>{
+    fixId(c);
     fixItems(c.items);
     if(typeof c.height!=="number"||!isFinite(c.height)||c.height<60){c.height=maxCellPx();changed=true}
   };
   eachSection(sec=>{
+    fixSec(sec);
     if(sec.type==="tasks")fixItems(sec.items);
     if(sec.type==="grid")(sec.cells||[]).forEach(fixCell);
   });
   eachIdea(it=>{
     fixItems(it.items);
     if(it.detail)it.detail.forEach(sec=>{
+      fixSec(sec);
       if(sec.type==="tasks")fixItems(sec.items);
       if(sec.type==="grid")(sec.cells||[]).forEach(fixCell);
     });
@@ -2864,6 +2920,10 @@ document.addEventListener("keydown",e=>{
       const frag=afterRange.extractContents();
       const tmp=document.createElement("div");tmp.appendChild(frag);
       afterHtml=tmp.innerHTML;
+      /* nothing real after the caret → start the new line truly empty; otherwise flatten it
+         so the new task never starts inside a block wrapper the caret can't get into */
+      if(!lineHasContent(afterHtml))afterHtml="";
+      else if(itemHtmlNeedsRepair(afterHtml))afterHtml=htmlToLines(afterHtml).join(" ");
     }catch(_){}
     it.html=el.innerHTML;
     const nk=it.kind==="header"?"text":it.kind;
@@ -3258,18 +3318,36 @@ document.addEventListener("paste",e=>{
   const html=cd.getData("text/html");
   if(!html)return; /* plain-text paste has no styles to strip — leave it to the browser */
   e.preventDefault();
+  /* pasting into a task line: one task per pasted line (Notion-style), never nested blocks */
+  if(host.matches('[data-sync^="item:"]')&&!e.target.closest("td")){pasteLinesIntoItem(host,htmlToLines(html));return}
   const tmp=document.createElement("div");tmp.innerHTML=html;
-  tmp.querySelectorAll("meta,style,title,link").forEach(n=>n.remove());
-  tmp.querySelectorAll("[style]").forEach(el=>{
-    el.style.removeProperty("background");
-    el.style.removeProperty("background-color");
-    if(!el.getAttribute("style"))el.removeAttribute("style");
-  });
-  tmp.querySelectorAll("[bgcolor]").forEach(el=>el.removeAttribute("bgcolor"));
+  stripPlannerChrome(tmp);
   document.execCommand("insertHTML",false,tmp.innerHTML);
   host.dispatchEvent(new Event("input",{bubbles:true}));
 });
 
+function pasteLinesIntoItem(el,lines){
+  if(!lines.length)return;
+  const id=el.dataset.sync.split(":")[1];const home=itemHome(id);
+  if(lines.length===1||!home){document.execCommand("insertHTML",false,lines.join(" "));el.dispatchEvent(new Event("input",{bubbles:true}));return}
+  /* text after the caret moves to the end of the last pasted line */
+  let afterHtml="";
+  try{
+    const sel=getSelection();const r=sel.getRangeAt(0);if(!r.collapsed)r.deleteContents();
+    const ar=document.createRange();ar.setStart(r.startContainer,r.startOffset);ar.setEnd(el,el.childNodes.length);
+    const tmp=document.createElement("div");tmp.appendChild(ar.extractContents());
+    afterHtml=lineHasContent(tmp.innerHTML)?tmp.innerHTML:"";
+  }catch(_){}
+  document.execCommand("insertHTML",false,lines[0]);
+  const it=home.arr[home.idx];
+  it.html=serializeHTML(el);pendingSerialize=null;
+  const nk=it.kind==="header"?"text":it.kind;
+  const fresh=lines.slice(1).map((l,i,a)=>{const ni=newItem(nk);ni.indent=it.indent||0;ni.html=l+(i===a.length-1?afterHtml:"");return ni});
+  home.arr.splice(home.idx+1,0,...fresh);
+  pendingFocus=fresh[fresh.length-1].id;pendingCaret="end";
+  if(viewer)renderViewer(sharedRef);else renderPage();
+  saveSoon();
+}
 /* ================= modals ================= */
 function modal(html){
   const root=document.getElementById("modalroot");
